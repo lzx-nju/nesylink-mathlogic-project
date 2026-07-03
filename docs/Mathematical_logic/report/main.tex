@@ -1,0 +1,282 @@
+\documentclass[12pt,a4paper]{ctexart}
+
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\title{数理逻辑课程大作业实验报告}
+\author{组长姓名 \and 组员姓名1 \and 组员姓名2 \and 组员姓名3 \and 组员姓名4}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+本文报告围绕 NesyLink 数理逻辑课程项目展开，目标是在 Zelda-like 地牢环境中设计可运行的 Agent，并对环境或策略中的关键部分进行 Lean 形式化建模与证明。报告将说明任务背景、环境约束、方法设计、形式化内容、实验结果与分工情况。
+
+\textbf{待补充：}
+\begin{itemize}[leftmargin=2em]
+  \item 项目最终采用的方法路线。
+  \item 解决了哪些任务，或者达到了哪些阶段性目标。
+  \item Lean 中完成了哪些核心证明。
+\end{itemize}
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{项目背景与任务要求}
+
+\subsection{课程作业目标}
+
+本次课程作业要求小组围绕给定游戏环境完成三部分内容：
+\begin{enumerate}[leftmargin=2em]
+  \item 设计并实现一个能够完成任务的 Agent；
+  \item 使用 Lean 对环境或策略中的关键部分进行形式化建模；
+  \item 证明若干性质，例如动作合法性、安全性、可达性或策略正确性。
+\end{enumerate}
+
+\subsection{环境限制与评测要求}
+
+\begin{itemize}[leftmargin=2em]
+  \item 训练和调试阶段可以使用像素、reward 和 \texttt{info} 等信息。
+  \item 最终测试阶段，Agent 不能直接依赖环境内部 \texttt{info}。
+  \item 最终测试阶段，Agent 只能根据像素观测、reward 和物品栏信息进行决策。
+  \item 如果使用机器学习方法，需要说明训练方式、信息来源以及与最终评测接口的一致性。
+\end{itemize}
+
+\subsection{本文结构}
+
+本文后续将依次介绍环境与任务分析、方法设计、Lean 形式化与证明、实验结果以及项目分工。
+
+\section{环境与任务分析}
+
+\subsection{NesyLink 环境概述}
+
+此处说明仓库结构、动作空间、观测模式、任务接口与评测方式。
+
+\textbf{待补充内容：}
+\begin{itemize}[leftmargin=2em]
+  \item 环境的基本 API。
+  \item 动作空间与观测空间。
+  \item 五个任务的基本机制差异。
+\end{itemize}
+
+\subsection{任务拆解}
+
+建议按任务逐一描述：
+\begin{itemize}[leftmargin=2em]
+  \item Task 1：单房间取钥匙开门。
+  \item Task 2：怪物处理与取钥匙。
+  \item Task 3：多房间状态记忆与往返。
+  \item Task 4：桥与按钮机制、复杂子任务链。
+  \item Task 5：综合关卡与泛化挑战。
+\end{itemize}
+
+\subsection{主要难点}
+
+\begin{enumerate}[leftmargin=2em]
+  \item 最终测试不能直接读取 \texttt{info}。
+  \item 需要从像素中抽取对策略有用的状态表示。
+  \item 需要在短时间内兼顾实现、证明和报告。
+\end{enumerate}
+
+\section{总体方法设计}
+
+\subsection{系统框架}
+
+建议在此给出整体框图，说明以下模块之间的关系：
+\begin{itemize}[leftmargin=2em]
+  \item 视觉/状态抽取模块
+  \item 策略与规划模块
+  \item 安全约束或合法动作筛选模块
+  \item 形式化验证模块
+\end{itemize}
+
+\subsection{为什么选择该路线}
+
+此处说明为什么选择当前路线，例如：
+\begin{itemize}[leftmargin=2em]
+  \item 可解释性更强；
+  \item 更容易与 Lean 证明对齐；
+  \item 更适合一周内完成；
+  \item 更容易兼顾性能与可验证性。
+\end{itemize}
+
+当前阶段已经选择“统一 Policy 骨架 + 分任务逐步扩展 + 可验证层优先”的路线。
+具体而言，项目先在自有代码目录中建立统一的 Agent 入口，
+优先跑通 \texttt{task\_1} 的 baseline，再逐步扩展到 \texttt{task\_2} 至 \texttt{task\_5}，
+并以阶段机、合法动作筛选器和动态对象状态跟踪作为后续形式化重点。
+目前自有 baseline 已覆盖 \texttt{task\_1} 和 \texttt{task\_2}，其中 \texttt{task\_2} 仍属于调试用途的脚本化版本，
+后续需要将其替换为更通用、更加符合最终测试限制的策略。
+
+\section{视觉与状态抽取}
+
+\subsection{输入与输出设计}
+
+此处描述从像素观测中提取哪些信息，例如玩家位置、墙体、钥匙、怪物、按钮、门、桥状态等。
+
+\subsection{实现方法}
+
+此处记录：
+\begin{itemize}[leftmargin=2em]
+  \item 使用了哪些规则、模板、图像处理或学习方法；
+  \item 输出状态如何提供给策略模块；
+  \item 如何避免依赖测试阶段不可用的信息。
+\end{itemize}
+
+\subsection{误差与局限}
+
+说明状态抽取中可能存在的误识别、泛化问题和对后续策略的影响。
+
+\section{策略与规划}
+
+\subsection{基线策略}
+
+此处记录最初的 rule-based / search baseline，包括：
+\begin{itemize}[leftmargin=2em]
+  \item 如何解决 Task 1 和 Task 2；
+  \item 如何表示子目标；
+  \item 如何进行路径规划或动作选择。
+\end{itemize}
+
+\subsection{多任务扩展}
+
+说明如何扩展到多房间、按钮、桥、怪物等复杂机制。
+
+\subsection{最终提交版本}
+
+明确区分：
+\begin{itemize}[leftmargin=2em]
+  \item 调试版策略；
+  \item 最终提交版策略；
+  \item 两者在输入信息上的区别。
+\end{itemize}
+
+\section{Lean 形式化与证明}
+
+\subsection{形式化对象}
+
+此处说明 Lean 中如何定义：
+\begin{itemize}[leftmargin=2em]
+  \item 状态；
+  \item 动作；
+  \item 状态转移；
+  \item 目标谓词；
+  \item 安全性或合法性条件。
+\end{itemize}
+
+\subsection{证明目标}
+
+建议列成表格：
+
+\begin{longtable}{p{0.25\textwidth}p{0.3\textwidth}p{0.35\textwidth}}
+\toprule
+定理名称 & 形式化对象 & 结论说明 \\
+\midrule
+\endhead
+待补充 & 待补充 & 待补充 \\
+\bottomrule
+\end{longtable}
+
+\subsection{证明思路}
+
+此处说明每个关键定理的证明思路，以及它如何与 Python 中的实际模块对应。
+
+\subsection{证明局限与边界}
+
+此处说明哪些部分被证明了，哪些部分没有被证明，以及原因。
+
+\section{实验设计与结果分析}
+
+\subsection{实验设置}
+
+此处记录：
+\begin{itemize}[leftmargin=2em]
+  \item 测试任务；
+  \item 运行次数；
+  \item 成功率统计方式；
+  \item 使用的模型、参数或规则版本。
+\end{itemize}
+
+\subsection{实验结果}
+
+建议用表格和图片展示：
+
+\begin{table}[H]
+\centering
+\begin{tabular}{llll}
+\toprule
+任务 & 方法版本 & 结果指标 & 备注 \\
+\midrule
+Task 1 & 待补充 & 待补充 & 待补充 \\
+Task 2 & 待补充 & 待补充 & 待补充 \\
+Task 3 & 待补充 & 待补充 & 待补充 \\
+Task 4 & 待补充 & 待补充 & 待补充 \\
+Task 5 & 待补充 & 待补充 & 待补充 \\
+\bottomrule
+\end{tabular}
+\caption{各任务实验结果汇总}
+\end{table}
+
+\subsection{结果分析}
+
+重点分析：
+\begin{itemize}[leftmargin=2em]
+  \item 哪些任务成功率较高；
+  \item 哪些失败来自视觉误差，哪些来自策略局限；
+  \item 哪些设计有较好的泛化性；
+  \item reward 和中间目标是否有帮助。
+\end{itemize}
+
+\section{项目分工与推进过程}
+
+\subsection{成员分工}
+
+建议写成表格：
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+成员 & 负责内容 & 主要产出 \\
+\midrule
+组长 & 待补充 & 待补充 \\
+成员 1 & 待补充 & 待补充 \\
+成员 2 & 待补充 & 待补充 \\
+成员 3 & 待补充 & 待补充 \\
+成员 4 & 待补充 & 待补充 \\
+\bottomrule
+\end{tabular}
+\caption{小组分工}
+\end{table}
+
+\subsection{时间安排}
+
+此处根据进度文档补充每日推进情况、关键决策与风险应对。
+
+\section{总结与展望}
+
+总结本文完成的工作、取得的结果、已有不足，以及如果时间更充足可以继续推进的方向。
+
+\newpage
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
