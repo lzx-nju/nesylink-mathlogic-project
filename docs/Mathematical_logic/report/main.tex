@@ -123,8 +123,11 @@
 具体而言，项目先在自有代码目录中建立统一的 Agent 入口，
 优先跑通 \texttt{task\_1} 的 baseline，再逐步扩展到 \texttt{task\_2} 至 \texttt{task\_5}，
 并以阶段机、合法动作筛选器和动态对象状态跟踪作为后续形式化重点。
-目前自有 baseline 已覆盖 \texttt{task\_1} 和 \texttt{task\_2}，其中 \texttt{task\_2} 仍属于调试用途的脚本化版本，
-后续需要将其替换为更通用、更加符合最终测试限制的策略。
+目前自有 baseline 已覆盖 \texttt{task\_1}、\texttt{task\_2}、\texttt{task\_3} 和 \texttt{task\_4}。
+其中 \texttt{task\_2} 仍属于调试用途的脚本化版本，
+而 \texttt{task\_3} 已经采用房间级规则状态机，
+\texttt{task\_4} 已经采用显式阶段机并维护桥状态与关键事件记忆，
+后续需要将这些基线逐步替换为更通用、更加符合最终测试限制的策略。
 
 \section{视觉与状态抽取}
 

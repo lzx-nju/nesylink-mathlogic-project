@@ -3,7 +3,7 @@
 ## 1. 项目状态总览
 
 - 项目名称：数理逻辑课程大作业
-- 仓库：`nesylink-main`
+- 仓库：`nesylink-mathlogic-project`
 - 当前阶段：项目启动
 - 更新时间：2026-07-03
 - 当前目标：搭建项目管理骨架、报告骨架，并尽快进入并行开发
@@ -15,7 +15,7 @@
 | 阅读课程要求与仓库结构 | 已完成 | Day 1 | 已确认任务要求、评分细则和测试限制 |
 | 建立项目管理文档 | 已完成 | Day 1 | 已创建总计划、进度跟踪、记忆清单 |
 | 建立实验报告框架 | 已完成 | Day 1 | 已创建 TeX 报告骨架 |
-| 跑通环境与示例策略 | 进行中 | Day 1 | 已安装依赖、跑通示例并建立自有 baseline |
+| 跑通环境与示例策略 | 进行中 | Day 1 | 已安装依赖、跑通示例并在自有 baseline 中覆盖前四关 |
 | 冻结统一 Agent 接口 | 进行中 | Day 2 | 已有接口草案和 baseline 骨架 |
 | 完成最小可用视觉/策略链路 | 未开始 | Day 3 | 待实现 |
 | 完成第一批 Lean 定义与证明 | 未开始 | Day 4 | 待实现 |
@@ -28,7 +28,7 @@
 |---|---|---|---|
 | 环境与评测 | 进行中 | 待定 | 补截图并扩展到更多任务 |
 | 视觉与状态抽取 | 待启动 | 待定 | 设计对象识别输出格式 |
-| 策略与规划 | 进行中 | 待定 | 在自有骨架上扩展 `task_2` |
+| 策略与规划 | 进行中 | 待定 | 在自有骨架上继续扩展 `task_5` |
 | Lean 形式化与证明 | 待启动 | 待定 | 明确证明边界与定理目标 |
 | 实验与报告 | 进行中 | 组长 | 累积实验记录与截图 |
 
@@ -48,9 +48,9 @@
 ### 高优先级
 
 - 确认五人分工并记录负责人
-- 补充记录 `task_1` / `task_2` 的结果细节与截图
+- 补充记录 `task_1` / `task_2` / `task_3` / `task_4` 的结果细节与截图
 - 明确最终提交 Agent 的接口
-- 在 `student_agent/` 中扩展 `task_2` baseline
+- 在 `student_agent/` 中设计 `task_5` baseline
 - 选定 Lean 首批证明目标
 
 ### 中优先级
@@ -109,6 +109,16 @@
   - avg_steps = 182.0
   - avg_reward = 126.180
   - 当前实现方式：从参考成功执行轨迹中提取的脚本化 debug baseline
+- 已将 `task_3` 接入自有 baseline，并完成单轮评测：
+  - success_rate = 1.000
+  - avg_steps = 523.0
+  - avg_reward = 159.770
+  - 当前实现方式：房间级规则状态机，使用 `room_id`、`tile` 和 `keys` 做决策
+- 已将 `task_4` 接入自有 baseline，并完成单轮评测：
+  - success_rate = 1.000
+  - avg_steps = 1085.0
+  - avg_reward = 249.150
+  - 当前实现方式：显式阶段机，维护桥状态与 `monster_killed` 事件记忆
 
 ## 8. 首批实验记录
 
@@ -118,6 +128,8 @@
 | 2026-07-03 | `examples/task2_reference.py` | `task_2` | 成功 | 14 步完成，终止原因为 `world_completed` |
 | 2026-07-03 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_1` | 成功 | 自有 baseline 骨架已跑通 |
 | 2026-07-03 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_2` | 成功 | 自有 baseline 已覆盖前两关 |
+| 2026-07-03 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_3` | 成功 | 自有 baseline 已覆盖前三关 |
+| 2026-07-03 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_4` | 成功 | 自有 baseline 已覆盖前四关 |
 
 ## 9. 每日更新模板
 
