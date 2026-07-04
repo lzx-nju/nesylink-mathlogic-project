@@ -9,8 +9,13 @@ __pycache__/
 *.pyd
 *.log
 *.bak
+.coverage
 .DS_Store
 .idea/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
 
 self_use/
 .vscode/
@@ -19,5 +24,15 @@ self_use/
 
 CLAUDE.md
 .claude/
+
+# LaTeX temporary files
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.out
+*.toc
+*.synctex.gz
 
 
