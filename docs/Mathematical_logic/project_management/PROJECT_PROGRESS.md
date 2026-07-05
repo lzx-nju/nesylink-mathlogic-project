@@ -6,7 +6,7 @@
 - 仓库：`nesylink-mathlogic-project`
 - 当前阶段：baseline 改造与验证
 - 更新时间：2026-07-05
-- 当前目标：将前四关 baseline 从调试状态依赖逐步过渡到像素感知，并推进 `task_5` 与报告材料
+- 当前目标：整理 `task_1`-`task_5` baseline、Lean 检查结果与报告材料
 
 ## 2. 当前里程碑
 
@@ -17,7 +17,7 @@
 | 建立实验报告框架 | 已完成 | Day 1 | 已创建 TeX 报告骨架 |
 | 跑通环境与示例策略 | 已完成 | Day 1 | 已安装依赖、跑通示例并在自有 baseline 中覆盖前四关 |
 | 冻结统一 Agent 接口 | 进行中 | Day 2 | 已有接口草案和 baseline 骨架 |
-| 完成最小可用视觉/策略链路 | 进行中 | Day 3 | `task_3` / `task_4` 已接入像素感知 baseline |
+| 完成最小可用视觉/策略链路 | 已完成 | Day 3 | `task_3` / `task_4` / `task_5` 已接入像素感知 baseline |
 | 完成第一批 Lean 定义与证明 | 进行中 | Day 4 | 当前 Lean 文件已通过逐文件编译检查 |
 | 统一实验结果并写报告主体 | 未开始 | Day 6 | 待推进 |
 | 最终封版与交叉检查 | 未开始 | Day 7 | 待推进 |
@@ -26,9 +26,9 @@
 
 | 工作流 | 当前状态 | 负责人 | 下一步 |
 |---|---|---|---|
-| 环境与评测 | 进行中 | 待定 | 补截图并扩展到 `task_5` |
+| 环境与评测 | 进行中 | 待定 | 补截图并整理 `task_1`-`task_5` 的最终评测记录 |
 | 视觉与状态抽取 | 进行中 | 待定 | 已覆盖玩家、房间、宝箱、开关、桥和怪物的基础像素识别 |
-| 策略与规划 | 进行中 | 待定 | 在自有骨架上继续扩展 `task_5` |
+| 策略与规划 | 进行中 | 待定 | 基于已跑通 baseline 整理报告叙述并检查提交接口 |
 | Lean 形式化与证明 | 进行中 | 待定 | 继续明确证明边界与定理目标 |
 | 实验与报告 | 进行中 | 组长 | 累积实验记录与截图 |
 
@@ -50,7 +50,7 @@
 - 确认五人分工并记录负责人
 - 补充记录 `task_1` / `task_2` / `task_3` / `task_4` 的结果细节与截图
 - 明确最终提交 Agent 的接口
-- 在 `student_agent/` 中设计 `task_5` baseline
+- 整理 `task_5` baseline 的路线、阶段记忆和像素对齐说明
 - 选定 Lean 首批证明目标
 
 ### 中优先级
@@ -130,7 +130,15 @@
   - `task_2`：success_rate = 1.000，avg_steps = 182.0，avg_reward = 126.180
   - `task_3`：success_rate = 1.000，avg_steps = 525.0，avg_reward = 159.750
   - `task_4`：success_rate = 1.000，avg_steps = 1089.0，avg_reward = 249.110
-- 已逐文件检查 `student_agent/lean/` 下 6 个 Lean 文件，均通过 `lake env lean`。
+- 已逐文件检查 `student_agent/lean/` 下 6 个 Lean 文件，均通过本地 `lean` 编译检查。
+- 已将 `task_5` 接入 `student_agent/baseline_policy.py`，采用显式阶段机推进：起始宝箱 -> 按钮 -> 南房间钥匙 -> 起始房间杀怪 -> 东门与治疗宝箱 -> 西房间金币宝箱。
+- `task_5` 路线实现中记录了多处像素碰撞对齐点：进入东门前需要在第 4 行对齐，东房间需要在第 1 行/第 1 列对齐，起始房间去西门与西房间底边也需要额外对齐，避免 tile 已到位但角色碰撞箱仍擦到墙或 NPC。
+- 已完成 `student_agent/baseline_policy.py` 的全任务单 seed 回归：
+  - `task_1`：success_rate = 1.000，avg_steps = 290.0，avg_reward = 127.050
+  - `task_2`：success_rate = 1.000，avg_steps = 182.0，avg_reward = 126.180
+  - `task_3`：success_rate = 1.000，avg_steps = 525.0，avg_reward = 159.750
+  - `task_4`：success_rate = 1.000，avg_steps = 1089.0，avg_reward = 249.110
+  - `task_5`：success_rate = 1.000，avg_steps = 1112.0，avg_reward = 155.730
 
 ## 8. 首批实验记录
 
@@ -143,7 +151,8 @@
 | 2026-07-03 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_3` | 成功 | 自有 baseline 已覆盖前三关 |
 | 2026-07-03 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_4` | 成功 | 自有 baseline 已覆盖前四关 |
 | 2026-07-05 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_1`-`task_4` | 成功 | 3 个 seed 全部成功；`task_3` / `task_4` 已改为像素感知基线 |
-| 2026-07-05 | `lake env lean` | `student_agent/lean/*.lean` | 成功 | 6 个 Lean 文件逐文件编译通过 |
+| 2026-07-05 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_1`-`task_5` | 成功 | 单 seed 全任务通过，`task_5` 用 1112 步完成 |
+| 2026-07-05 | `lean` | `student_agent/lean/*.lean` | 成功 | 6 个 Lean 文件逐文件编译通过 |
 
 ## 9. 每日更新模板
 

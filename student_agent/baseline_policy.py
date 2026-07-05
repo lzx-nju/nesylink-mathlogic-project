@@ -29,6 +29,8 @@ ABYSS_COLOR: Color = (0, 0, 0)
 BRIDGE_COLOR: Color = (172, 104, 48)
 SWITCH_BODY: Color = (255, 216, 80)
 SWITCH_DOWN: Color = (184, 124, 42)
+BUTTON_UP: Color = (40, 190, 74)
+BUTTON_DOWN_COLOR: Color = (28, 112, 52)
 
 
 BRIDGE_CYCLE = {
@@ -193,6 +195,10 @@ class Policy:
         switch_pixels = self.count_color(frame, SWITCH_BODY, tile) + self.count_color(frame, SWITCH_DOWN, tile)
         return switch_pixels >= 20 and not self.tile_has_chest(frame, tile)
 
+    def tile_has_button(self, frame: np.ndarray, tile: Tile) -> bool:
+        button_pixels = self.count_color(frame, BUTTON_UP, tile) + self.count_color(frame, BUTTON_DOWN_COLOR, tile)
+        return button_pixels >= 20 and not self.tile_has_chest(frame, tile)
+
     def tile_has_wall(self, frame: np.ndarray, tile: Tile) -> bool:
         return self.count_color(frame, WALL_COLOR, tile) >= 80
 
@@ -239,6 +245,17 @@ class Policy:
             return "north"
         return None
 
+    def detect_task5_room(self, frame: np.ndarray) -> str | None:
+        if self.tile_has_chest(frame, (8, 5)):
+            return "task5_south"
+        if self.tile_has_chest(frame, (7, 1)):
+            return "task5_east"
+        if self.tile_has_chest(frame, (2, 6)):
+            return "task5_west"
+        if self.tile_has_chest(frame, (4, 2)) or self.tile_has_button(frame, (2, 6)):
+            return "task5_start"
+        return None
+
     def perceive(self, frame: np.ndarray, task_id: str | None) -> PixelState:
         player_tile = self.detect_player_tile(frame)
         room_id: str | None = None
@@ -249,6 +266,8 @@ class Policy:
             room_id = self.detect_task4_room(frame)
             if room_id == "center":
                 bridge_state = self.detect_bridge_state(frame)
+        elif task_id == "mathematical_logic/task_5":
+            room_id = self.detect_task5_room(frame)
         return PixelState(
             player_tile=player_tile,
             room_id=room_id,
@@ -450,6 +469,249 @@ class Policy:
 
         return ACTION_NOOP
 
+    def move_towards(self, tile: Tile, target: Tile, *, x_first: bool = True) -> int:
+        x, y = tile
+        target_x, target_y = target
+        if x_first:
+            if x < target_x:
+                return ACTION_RIGHT
+            if x > target_x:
+                return ACTION_LEFT
+            if y < target_y:
+                return ACTION_DOWN
+            if y > target_y:
+                return ACTION_UP
+        else:
+            if y < target_y:
+                return ACTION_DOWN
+            if y > target_y:
+                return ACTION_UP
+            if x < target_x:
+                return ACTION_RIGHT
+            if x > target_x:
+                return ACTION_LEFT
+        return ACTION_NOOP
+
+    def follow_waypoints(
+        self,
+        tile: Tile,
+        waypoints: tuple[Tile, ...],
+        *,
+        x_first: bool = True,
+        final_action: int = ACTION_NOOP,
+    ) -> int:
+        for waypoint in waypoints:
+            if tile != waypoint:
+                return self.move_towards(tile, waypoint, x_first=x_first)
+        return final_action
+
+    def follow_route(
+        self,
+        route_key: str,
+        tile: Tile,
+        waypoints: tuple[Tile, ...],
+        *,
+        x_first: bool = True,
+        final_action: int = ACTION_NOOP,
+    ) -> int:
+        index_key = f"{route_key}_waypoint_index"
+        index = int(self.history.notes.get(index_key, 0) or 0)
+        while index < len(waypoints) and tile == waypoints[index]:
+            index += 1
+        self.history.notes[index_key] = index
+        if index >= len(waypoints):
+            return final_action
+        return self.move_towards(tile, waypoints[index], x_first=x_first)
+
+    def update_task5_memory(self, pixel_state: PixelState, reward_signals: dict[str, Any]) -> None:
+        room_id = pixel_state.room_id
+        if room_id is not None:
+            self.history.notes["task5_last_room"] = room_id
+        else:
+            room_id = self.history.notes.get("task5_last_room")
+
+        if float(reward_signals.get("button_pressed", 0.0) or 0.0) > 0:
+            self.history.notes["task5_button_pressed"] = True
+        if float(reward_signals.get("key_collected", 0.0) or 0.0) > 0:
+            self.history.notes["task5_key_collected"] = True
+        if float(reward_signals.get("door_opened", 0.0) or 0.0) > 0:
+            self.history.notes["task5_east_gate_opened"] = True
+        if float(reward_signals.get("monster_hit", 0.0) or 0.0) > 0:
+            hits = int(self.history.notes.get("task5_start_monster_hits", 0) or 0)
+            self.history.notes["task5_start_monster_hits"] = hits + 1
+        if float(reward_signals.get("monster_kill", 0.0) or 0.0) > 0:
+            self.history.notes["task5_start_monster_cleared"] = True
+        if float(reward_signals.get("chest_opened", 0.0) or 0.0) <= 0:
+            return
+
+        if room_id == "task5_start":
+            self.history.notes["task5_start_chest_opened"] = True
+        elif room_id == "task5_south":
+            self.history.notes["task5_south_chest_opened"] = True
+        elif room_id == "task5_east":
+            self.history.notes["task5_east_chest_opened"] = True
+        elif room_id == "task5_west":
+            self.history.notes["task5_west_chest_opened"] = True
+
+    def task5_stage(self, inventory: dict[str, Any]) -> str:
+        keys = int(inventory.get("keys", 0))
+        notes = self.history.notes
+        if not bool(notes.get("task5_start_chest_opened", False)):
+            return "open_start_chest"
+        if not bool(notes.get("task5_button_pressed", False)):
+            return "press_button"
+        if not bool(notes.get("task5_south_chest_opened", False)):
+            return "open_south_chest"
+        if not bool(notes.get("task5_east_chest_opened", False)):
+            return "open_east_chest" if keys > 0 or bool(notes.get("task5_east_gate_opened", False)) else "open_south_chest"
+        if not bool(notes.get("task5_west_chest_opened", False)):
+            return "open_west_chest"
+        return "done"
+
+    def decide_task5(
+        self,
+        pixel_state: PixelState,
+        inventory: dict[str, Any],
+        reward_signals: dict[str, Any],
+    ) -> int:
+        self.update_task5_memory(pixel_state, reward_signals)
+        room_id = pixel_state.room_id
+        tile = pixel_state.player_tile
+        if room_id is None or tile is None:
+            return ACTION_NOOP
+
+        stage = self.task5_stage(inventory)
+        if stage == "done":
+            return ACTION_NOOP
+
+        if room_id == "task5_start":
+            if stage == "open_start_chest":
+                if tile == (4, 1):
+                    return ACTION_A
+                return self.move_towards(tile, (4, 1), x_first=True)
+
+            if stage in {"press_button", "open_south_chest"}:
+                return self.follow_route(
+                    "task5_start_to_south",
+                    tile,
+                    ((1, 1), (1, 6), (2, 6), (4, 7)),
+                    x_first=True,
+                    final_action=ACTION_DOWN,
+                )
+
+            if stage == "open_east_chest":
+                if not bool(self.history.notes.get("task5_start_monster_cleared", False)):
+                    attacks = int(self.history.notes.get("task5_start_monster_attacks", 0) or 0)
+                    hits = int(self.history.notes.get("task5_start_monster_hits", 0) or 0)
+                    target = (5, 6) if hits <= 0 else (5, 5)
+                    if attacks >= 4:
+                        self.history.notes["task5_start_monster_cleared"] = True
+                    elif tile != target:
+                        return self.move_towards(tile, target, x_first=True)
+                    elif self.history.facing != "up":
+                        return ACTION_UP
+                    else:
+                        self.history.notes["task5_start_monster_attacks"] = attacks + 1
+                        return ACTION_A
+                if not bool(self.history.notes.get("task5_east_row_aligned", False)):
+                    if tile[1] > 4:
+                        return ACTION_UP
+                    ticks = int(self.history.notes.get("task5_east_row_align_ticks", 0) or 0)
+                    if ticks < 10:
+                        self.history.notes["task5_east_row_align_ticks"] = ticks + 1
+                        return ACTION_UP
+                    self.history.notes["task5_east_row_aligned"] = True
+
+                return self.follow_route(
+                    "task5_start_to_east",
+                    tile,
+                    ((9, 4),),
+                    x_first=True,
+                    final_action=ACTION_RIGHT,
+                )
+
+            if stage == "open_west_chest":
+                if not bool(self.history.notes.get("task5_start_west_row_aligned", False)):
+                    if tile[1] < 4:
+                        return ACTION_DOWN
+                    ticks = int(self.history.notes.get("task5_start_west_row_align_ticks", 0) or 0)
+                    if ticks < 8:
+                        self.history.notes["task5_start_west_row_align_ticks"] = ticks + 1
+                        return ACTION_DOWN
+                    self.history.notes["task5_start_west_row_aligned"] = True
+                return self.follow_route(
+                    "task5_start_to_west",
+                    tile,
+                    ((1, 4),),
+                    x_first=True,
+                    final_action=ACTION_LEFT,
+                )
+
+        if room_id == "task5_south":
+            if stage == "open_south_chest":
+                return self.follow_route(
+                    "task5_south_to_key_chest",
+                    tile,
+                    ((9, 1), (9, 4), (8, 4)),
+                    x_first=True,
+                    final_action=ACTION_A,
+                )
+            return self.follow_route(
+                "task5_south_to_start",
+                tile,
+                ((8, 0), (4, 0)),
+                x_first=False,
+                final_action=ACTION_UP,
+            )
+
+        if room_id == "task5_east":
+            if stage == "open_east_chest":
+                if not bool(self.history.notes.get("task5_east_chest_row_aligned", False)):
+                    if tile[1] > 1:
+                        return ACTION_UP
+                    ticks = int(self.history.notes.get("task5_east_chest_row_align_ticks", 0) or 0)
+                    if ticks < 10:
+                        self.history.notes["task5_east_chest_row_align_ticks"] = ticks + 1
+                        return ACTION_UP
+                    self.history.notes["task5_east_chest_row_aligned"] = True
+                if tile == (6, 1):
+                    return ACTION_A
+                return self.move_towards(tile, (6, 1), x_first=True)
+
+            if not bool(self.history.notes.get("task5_east_return_col_aligned", False)):
+                if tile[0] > 1:
+                    return ACTION_LEFT
+                ticks = int(self.history.notes.get("task5_east_return_col_align_ticks", 0) or 0)
+                if ticks < 6:
+                    self.history.notes["task5_east_return_col_align_ticks"] = ticks + 1
+                    return ACTION_LEFT
+                self.history.notes["task5_east_return_col_aligned"] = True
+
+            return self.follow_route(
+                "task5_east_to_start",
+                tile,
+                ((1, 4), (0, 4)),
+                x_first=False,
+                final_action=ACTION_LEFT,
+            )
+
+        if room_id == "task5_west":
+            if stage == "open_west_chest":
+                if not bool(self.history.notes.get("task5_west_bottom_aligned", False)):
+                    if tile[1] < 7:
+                        return ACTION_DOWN
+                    ticks = int(self.history.notes.get("task5_west_bottom_align_ticks", 0) or 0)
+                    if ticks < 8:
+                        self.history.notes["task5_west_bottom_align_ticks"] = ticks + 1
+                        return ACTION_DOWN
+                    self.history.notes["task5_west_bottom_aligned"] = True
+                if tile == (2, 7):
+                    return ACTION_A
+                return self.move_towards(tile, (2, 7), x_first=True)
+            return ACTION_RIGHT
+
+        return ACTION_NOOP
+
     def update_facing(self, action: int) -> None:
         if action == ACTION_UP:
             self.history.facing = "up"
@@ -476,8 +738,9 @@ class Policy:
             return self.decide_task3(pixel_state, inventory)
         if task_id == "mathematical_logic/task_4":
             return self.decide_task4(pixel_state, inventory, reward_signals)
+        if task_id == "mathematical_logic/task_5":
+            return self.decide_task5(pixel_state, inventory, reward_signals)
 
-        # TODO: add generic exploration policy for task_5.
         return ACTION_NOOP
 
     def act(self, obs, info: dict[str, Any]) -> int:
