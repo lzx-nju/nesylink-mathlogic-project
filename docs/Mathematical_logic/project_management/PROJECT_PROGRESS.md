@@ -4,9 +4,9 @@
 
 - 项目名称：数理逻辑课程大作业
 - 仓库：`nesylink-mathlogic-project`
-- 当前阶段：项目启动
-- 更新时间：2026-07-03
-- 当前目标：搭建项目管理骨架、报告骨架，并尽快进入并行开发
+- 当前阶段：baseline 改造与验证
+- 更新时间：2026-07-05
+- 当前目标：将前四关 baseline 从调试状态依赖逐步过渡到像素感知，并推进 `task_5` 与报告材料
 
 ## 2. 当前里程碑
 
@@ -15,10 +15,10 @@
 | 阅读课程要求与仓库结构 | 已完成 | Day 1 | 已确认任务要求、评分细则和测试限制 |
 | 建立项目管理文档 | 已完成 | Day 1 | 已创建总计划、进度跟踪、记忆清单 |
 | 建立实验报告框架 | 已完成 | Day 1 | 已创建 TeX 报告骨架 |
-| 跑通环境与示例策略 | 进行中 | Day 1 | 已安装依赖、跑通示例并在自有 baseline 中覆盖前四关 |
+| 跑通环境与示例策略 | 已完成 | Day 1 | 已安装依赖、跑通示例并在自有 baseline 中覆盖前四关 |
 | 冻结统一 Agent 接口 | 进行中 | Day 2 | 已有接口草案和 baseline 骨架 |
-| 完成最小可用视觉/策略链路 | 未开始 | Day 3 | 待实现 |
-| 完成第一批 Lean 定义与证明 | 未开始 | Day 4 | 待实现 |
+| 完成最小可用视觉/策略链路 | 进行中 | Day 3 | `task_3` / `task_4` 已接入像素感知 baseline |
+| 完成第一批 Lean 定义与证明 | 进行中 | Day 4 | 当前 Lean 文件已通过逐文件编译检查 |
 | 统一实验结果并写报告主体 | 未开始 | Day 6 | 待推进 |
 | 最终封版与交叉检查 | 未开始 | Day 7 | 待推进 |
 
@@ -26,10 +26,10 @@
 
 | 工作流 | 当前状态 | 负责人 | 下一步 |
 |---|---|---|---|
-| 环境与评测 | 进行中 | 待定 | 补截图并扩展到更多任务 |
-| 视觉与状态抽取 | 待启动 | 待定 | 设计对象识别输出格式 |
+| 环境与评测 | 进行中 | 待定 | 补截图并扩展到 `task_5` |
+| 视觉与状态抽取 | 进行中 | 待定 | 已覆盖玩家、房间、宝箱、开关、桥和怪物的基础像素识别 |
 | 策略与规划 | 进行中 | 待定 | 在自有骨架上继续扩展 `task_5` |
-| Lean 形式化与证明 | 待启动 | 待定 | 明确证明边界与定理目标 |
+| Lean 形式化与证明 | 进行中 | 待定 | 继续明确证明边界与定理目标 |
 | 实验与报告 | 进行中 | 组长 | 累积实验记录与截图 |
 
 ## 4. 今日重点
@@ -120,6 +120,18 @@
   - avg_reward = 249.150
   - 当前实现方式：显式阶段机，维护桥状态与 `monster_killed` 事件记忆
 
+### 2026-07-05
+
+- 已将 `task_3` / `task_4` 的 baseline 改造为像素感知版本，策略主体不再直接读取 `info["env"]`、`info["agent"]`、`info["dynamic"]` 或 `info["events"]`。
+- 已修正玩家格子识别：从玩家精灵绿色像素反推出精灵位置，并按玩家中心点计算 tile，与环境交互语义保持一致。
+- 已补充 `task_4` 中开关按下后的像素识别，避免按下开关后 west 房间无法识别。
+- 已完成 `task_1` 到 `task_4` 的 3 个 seed 回归：
+  - `task_1`：success_rate = 1.000，avg_steps = 290.0，avg_reward = 127.050
+  - `task_2`：success_rate = 1.000，avg_steps = 182.0，avg_reward = 126.180
+  - `task_3`：success_rate = 1.000，avg_steps = 525.0，avg_reward = 159.750
+  - `task_4`：success_rate = 1.000，avg_steps = 1089.0，avg_reward = 249.110
+- 已逐文件检查 `student_agent/lean/` 下 6 个 Lean 文件，均通过 `lake env lean`。
+
 ## 8. 首批实验记录
 
 | 日期 | 入口 | 任务 | 结果 | 备注 |
@@ -130,6 +142,8 @@
 | 2026-07-03 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_2` | 成功 | 自有 baseline 已覆盖前两关 |
 | 2026-07-03 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_3` | 成功 | 自有 baseline 已覆盖前三关 |
 | 2026-07-03 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_4` | 成功 | 自有 baseline 已覆盖前四关 |
+| 2026-07-05 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_1`-`task_4` | 成功 | 3 个 seed 全部成功；`task_3` / `task_4` 已改为像素感知基线 |
+| 2026-07-05 | `lake env lean` | `student_agent/lean/*.lean` | 成功 | 6 个 Lean 文件逐文件编译通过 |
 
 ## 9. 每日更新模板
 
