@@ -69,14 +69,27 @@
 
 \subsection{NesyLink 环境概述}
 
-此处说明仓库结构、动作空间、观测模式、任务接口与评测方式。
+NesyLink 是一个 Zelda-like 的离散动作地牢环境。默认任务接口采用 Gym 风格：
+\texttt{obs, info = env.reset(seed)}，以及
+\texttt{obs, reward, terminated, truncated, info = env.step(action)}。
+本次课程任务要求最终提交版策略在推理阶段只能使用像素观测、reward
+和显式提供的物品栏信息，不能直接读取 \texttt{info} 中的隐藏状态。
 
-\textbf{待补充内容：}
-\begin{itemize}[leftmargin=2em]
-  \item 环境的基本 API。
-  \item 动作空间与观测空间。
-  \item 五个任务的基本机制差异。
-\end{itemize}
+动作空间为 7 个离散动作：
+\texttt{WAIT}、\texttt{UP}、\texttt{DOWN}、\texttt{LEFT}、\texttt{RIGHT}、
+\texttt{BUTTON\_A}、\texttt{BUTTON\_B}。默认像素控制下，房间地图区域大小为
+\texttt{160 \(\times\) 128} 像素，对应 \texttt{10 \(\times\) 8} 个 tile，
+每个 tile 为 \texttt{16 \(\times\) 16} 像素。默认观测 \texttt{obs}
+为 RGB 图像，shape 为 \texttt{(128, 160, 3)}。环境还提供结构化
+\texttt{info} 作为调试与监督接口，其中包含房间编号、角色坐标、事件记录、
+动态对象状态和奖励信号等信息。
+
+五个任务的差异主要体现在关键机制上：\texttt{task\_1}
+是静态单房间取钥匙开门；\texttt{task\_2} 引入怪物、战斗和条件门；
+\texttt{task\_3} 要求跨房间记忆；\texttt{task\_4}
+引入旋转桥、条件门、装备获取和隐藏宝箱，是最适合做显式环境建模的一关；
+\texttt{task\_5} 则是多机制综合任务。基于课程要求与当前项目进度，
+本文将 \texttt{task\_4} 作为环境形式化的主对象。
 
 \subsection{任务拆解}
 
@@ -176,14 +189,44 @@
 
 \subsection{形式化对象}
 
-此处说明 Lean 中如何定义：
+本项目目前已经给出四个 Lean 形式化示例：
+\texttt{Task1EnvironmentFormalization.lean}、
+\texttt{KillMonsterFormalization.lean}、
+\texttt{Task3EnvironmentFormalization.lean} 和
+\texttt{Task4EnvironmentFormalization.lean}。
+其中 \texttt{task\_1} 和 \texttt{task\_3} 覆盖单房间钥匙门与三房间往返，
+\texttt{task\_2} 覆盖怪物、宝箱和执行轨迹，
+\texttt{task\_4} 则覆盖旋转桥与显式任务链。
+
+本文将 \texttt{task\_4} 作为报告中的重点展开对象，因为它包含课程最关心的
+动态对象状态、条件门、关键道具获取和事件驱动显现机制。
+对应 Lean 文件为
+\texttt{student\_agent/lean/Task4EnvironmentFormalization.lean}。
+该文件与 Python 环境中以下模块对齐：
+\texttt{movement.py}（门与房间切换）、
+\texttt{interactions.py}（开关与宝箱）、
+\texttt{combat.py}（击杀怪物后揭示宝箱）。
+
+具体抽象如下：
 \begin{itemize}[leftmargin=2em]
-  \item 状态；
-  \item 动作；
-  \item 状态转移；
-  \item 目标谓词；
-  \item 安全性或合法性条件。
+  \item \textbf{房间状态}：使用 \texttt{Room} 枚举描述五个房间
+  \texttt{west / center / north / east / south}。
+  \item \textbf{动态对象状态}：使用 \texttt{BridgeState} 描述中央桥的三种连通状态
+  \texttt{westToNorth / westToEast / westToSouth}。
+  \item \textbf{玩家资源与关键事件}：记录
+  \texttt{keys}、\texttt{hasSword}、\texttt{hasShield}，
+  以及北房宝箱、东房宝箱、南房守卫和中央终点宝箱的状态。
+  \item \textbf{动作}：抽象为房间级动作，包括转桥、进出中心房、开宝箱、攻击和开启最终宝箱。
+  \item \textbf{转移函数}：用确定性函数 \texttt{step} 描述状态更新。
+  它保留了三类关键约束：
+  东门需要钥匙但不消耗钥匙；桥状态决定中心房可达方向；
+  南房守卫被击杀后才会揭示中央最终宝箱。
+  \item \textbf{目标谓词}：\texttt{GoalReached} 定义为最终宝箱已开启。
 \end{itemize}
+
+该抽象刻意忽略了像素坐标、碰撞盒、怪物移动 AI、击退距离和 HUD 渲染等低层细节，
+因为这些细节虽然存在于 Python 引擎中，但并不是规划正确性和任务链证明的核心。
+换言之，Lean 模型证明的是“策略依赖的环境语义层”而不是“完整渲染引擎实现层”。
 
 \subsection{证明目标}
 
@@ -194,17 +237,61 @@
 定理名称 & 形式化对象 & 结论说明 \\
 \midrule
 \endhead
-待补充 & 待补充 & 待补充 \\
+\texttt{rotateBridge\_three\_cycle} & 桥状态机 &
+证明西房开关连续触发三次后，桥状态回到初始方向。 \\
+\texttt{goEast\_blocked\_without\_key} & 东门条件 &
+证明当玩家位于中心房、桥已连到东侧但没有钥匙时，\texttt{goEast} 不产生状态变化。 \\
+\texttt{goEast\_succeeds\_with\_key} & 东门条件 &
+证明在中心房、桥连东侧且已持钥匙时，\texttt{goEast} 能把玩家带入东房。 \\
+\texttt{attack\_without\_sword\_has\_no\_effect} & 战斗语义 &
+证明没有剑时，在南房执行攻击不会击杀守卫，也不会揭示最终宝箱。 \\
+\texttt{attack\_with\_sword\_reveals\_final\_chest} & 战斗与事件触发 &
+证明持剑击败南房守卫后，\texttt{guardianAlive} 变为假，且 \texttt{finalChestVisible} 变为真。 \\
+\texttt{openFinalChest\_requires\_visibility} & 终点交互语义 &
+证明若最终宝箱尚未显现，则在中心房尝试开启最终宝箱不会成功。 \\
+\texttt{witnessPlan\_reaches\_goal} & 执行轨迹与目标谓词 &
+给出一条具体计划，证明从初始状态出发可以完成“取钥匙 $\rightarrow$ 拿剑 $\rightarrow$ 击杀守卫 $\rightarrow$ 开最终宝箱”的任务链。 \\
+\texttt{task4\_completable} & 可达性 &
+由上述执行轨迹推出：在该形式化模型下，\texttt{task\_4} 是可完成的。 \\
 \bottomrule
 \end{longtable}
 
 \subsection{证明思路}
 
-此处说明每个关键定理的证明思路，以及它如何与 Python 中的实际模块对应。
+证明思路采用“先环境语义，后任务轨迹”的顺序。
+
+首先，对桥状态、门条件和关键交互规则分别给出局部定理。
+这一步对应评分细则中的“状态 / 动作 / 转移是否定义完整、是否能证明基本合法性与安全性”。
+例如，\texttt{goEast\_blocked\_without\_key}
+直接对应 Python 中 \texttt{movement.py} 对 \texttt{locked\_key} 出口的检查；
+\texttt{attack\_with\_sword\_reveals\_final\_chest}
+对应 \texttt{combat.py} 中“清怪后揭示宝箱”的事件语义；
+\texttt{rotateBridge\_three\_cycle}
+对应 \texttt{interactions.py} 中 switch 对 \texttt{center\_bridge} 的循环切换。
+
+其次，在局部规则已经明确的基础上，构造一条显式的见证计划
+\texttt{witnessPlan}。该计划严格遵循任务链：
+先从西房进入中心房并前往北房拿钥匙，再回西房切桥至东侧拿剑，
+之后再次切桥至南侧击杀守卫，最后返回中心房开启最终宝箱。
+由于 \texttt{step} 被定义为确定性函数，因此整条轨迹的正确性可以通过归约直接验证。
+这使得“任务可完成”从口头分析转化为可检查的形式化结论。
 
 \subsection{证明局限与边界}
 
-此处说明哪些部分被证明了，哪些部分没有被证明，以及原因。
+当前环境形式化刻画的是 \texttt{task\_4} 的\textbf{房间级符号语义}，
+而不是 Python 引擎的逐像素精确副本，因此存在以下边界：
+\begin{itemize}[leftmargin=2em]
+  \item 未形式化像素级移动、碰撞盒、路径细节与房间内精确坐标。
+  \item 未形式化怪物 AI、击退、受伤时序和 shield 格挡的连续动力学。
+  \item 未证明视觉模块一定能从 \texttt{obs} 中稳定恢复这些符号状态；
+  该部分属于感知层，而不是当前 Lean 环境模型的覆盖范围。
+  \item 当前证明的是一条显式计划的可执行性和若干局部环境性质，
+  还没有证明“任意合法 planner 都能找到该计划”这类更强的完备性命题。
+\end{itemize}
+
+这一边界是有意为之：课程要求强调 Lean 证明应覆盖“可验证层”。
+对于本项目而言，最具价值且最容易和实际代码保持一致的对象，
+正是桥状态机、门条件、宝箱显现规则与任务完成谓词这类符号层环境语义。
 
 \section{实验设计与结果分析}
 
