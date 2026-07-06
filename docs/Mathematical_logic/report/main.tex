@@ -243,8 +243,8 @@ Lean 部分首先完成五个任务的环境形式化与 witness 可完成性证
   \texttt{info["dynamic"]} 或 \texttt{info["events"]}。
   \item \texttt{task\_1} 与 \texttt{task\_2} 仍是固定动作序列，
   适合作为稳定 baseline，但泛化能力弱于后续的像素阶段机。
-  \item Lean 当前验证的是符号层环境、显式 witness 计划，以及
-  \texttt{task\_5} 高层阶段机策略的合法性与完成性；
+  \item Lean 验证了五个任务的符号层环境、显式 witness 计划，
+  以及全部五个任务的高层阶段机策略（\texttt{symbolicPolicy}）的合法性与完成性；
   尚未证明像素感知层一定能在所有渲染扰动下恢复这些符号状态。
 \end{itemize}
 
@@ -643,36 +643,67 @@ Task 5 包含 4 个房间（\texttt{startRoom / southRoom / eastRoom / westRoom}
 
 \subsubsection{策略形式化与正确性证明}
 
-为覆盖评分项中的“策略形式化与证明”，\texttt{Task5EnvironmentFormalization.lean}
-在环境模型之后进一步定义了 \texttt{PolicyStage} 与 \texttt{symbolicPolicy}。
-\texttt{PolicyStage} 把任务拆成
-\texttt{openStartChest}、\texttt{pressStartButton}、\texttt{openSouthChest}、
-\texttt{openEastChest}、\texttt{openWestChest} 和 \texttt{done} 六个阶段；
-\texttt{symbolicPolicy} 根据当前房间、按钮状态、钥匙数和四个宝箱状态输出下一步房间级动作。
+为覆盖评分项中的“策略形式化与证明”，五个 Task 的 Lean 文件
+在环境模型之后均进一步定义了 \texttt{PolicyStage} 与 \texttt{symbolicPolicy}，
+将 Python \texttt{baseline\_policy.py} 中的规则逻辑提升为符号策略。
+每个 Task 的阶段机与策略步数汇总如下：
 
-为了证明策略不是单纯列出路径，Lean 文件还定义了：
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+Task & 抽象层级 & \texttt{PolicyStage} 阶段 & 策略步数 \\
+\midrule
+Task 1 & tile & \texttt{openChest} $\to$ \texttt{goNorth} $\to$ \texttt{done} & 22 \\
+Task 2 & zone & \texttt{killMonster} $\to$ \texttt{openChest} $\to$ \texttt{useExit} $\to$ \texttt{done} & 7 \\
+Task 3 & room & \texttt{getKey} $\to$ \texttt{useExit} $\to$ \texttt{done} & 6 \\
+Task 4 & room & \texttt{getKey} $\to$ \texttt{getSword} $\to$ \texttt{killGuardian} $\to$ \texttt{openFinalChest} $\to$ \texttt{done} & 17 \\
+Task 5 & room & \texttt{openStartChest} $\to$ \texttt{pressStartButton} $\to$ \texttt{openSouthChest} $\to$ \texttt{openEastChest} $\to$ \texttt{openWestChest} $\to$ \texttt{done} & 10 \\
+\bottomrule
+\end{tabular}
+\caption{五个任务的符号策略阶段机与步数}
+\end{table}
+
+\texttt{symbolicPolicy} 是状态驱动的反应式策略：
+它读取当前 \texttt{EnvState}，通过 \texttt{policyStage} 判断当前所处阶段，
+然后根据阶段和当前房间/坐标输出下一个高层动作。
+以 Task 4 为例，策略在 \texttt{west} 房间会先检查桥梁方位是否匹配目标房间，
+不匹配则 \texttt{toggleBridge}，匹配则 \texttt{goCenter} 进入中转，
+再根据阶段导航到 \texttt{north}/\texttt{east}/\texttt{south}。
+
+为了证明策略不是单纯列出路径，每个 Lean 文件还定义了：
 \begin{itemize}[leftmargin=2em]
   \item \texttt{policyTrace}：从当前状态反复调用 \texttt{symbolicPolicy} 生成动作轨迹；
   \item \texttt{runPolicy}：直接执行策略得到后继状态；
-  \item \texttt{ActionEnabled}：刻画每个动作在当前状态下是否合法，例如
-  \texttt{goSouth} 需要按钮已按，\texttt{goEast} 需要钥匙或处于西房返回分支；
+  \item \texttt{actionEnabled}（\texttt{Bool} 版本）：刻画每个动作在当前状态下是否合法，
+  例如 Task 3 的 \texttt{openLockedExit} 需要 \texttt{room = startRoom ∧ keys > 0}，
+  Task 4 的 \texttt{goEast} 需要 \texttt{bridgeAllowsEast ∧ hasKey}，
+  Task 5 的 \texttt{goSouth} 需要 \texttt{buttonPressed = true}；
   \item \texttt{actionsEnabledAlong}：递归检查整条策略轨迹上每一步动作都满足对应前置条件。
 \end{itemize}
 
-核心策略定理如下：
+每个 Task 的核心策略定理如下：
 \[
 \begin{aligned}
-&\texttt{policyTrace\_10\_matches\_witnessPlan}:\\
-&\quad \texttt{policyTrace 10 initialState = witnessPlan};\\
-&\texttt{policyTrace\_10\_actions\_enabled}:\\
-&\quad \texttt{actionsEnabledAlong initialState (policyTrace 10 initialState)};\\
-&\texttt{symbolicPolicy\_run\_10\_finalState}:\\
-&\quad \texttt{runPolicy 10 initialState = finalState};\\
-&\texttt{task5\_symbolicPolicy\_completes}:\\
+&\texttt{policyTrace\_N\_matches\_witnessPlan}:\\
+&\quad \texttt{policyTrace N initialState = witnessPlan};\\
+&\texttt{policyTrace\_N\_actions\_enabled}:\\
+&\quad \texttt{actionsEnabledAlong initialState (policyTrace N initialState) = true};\\
+&\texttt{symbolicPolicy\_run\_N\_finalState}:\\
+&\quad \texttt{runPolicy N initialState = finalState};\\
+&\texttt{taskN\_symbolicPolicy\_completes}:\\
 &\quad \exists n,\ \texttt{GoalReached (runPolicy n initialState)}.
 \end{aligned}
 \]
-这说明 \texttt{task\_5} 的 Lean 部分不再只证明“存在一条完成路径”，
+其中 $N$ 为各任务的策略步数（22/7/6/17/10）。
+前两个定理证明策略轨迹与手工构造的见证计划完全一致、且轨迹上每个动作都合法；
+后两个定理证明策略从初态出发在有限步内到达目标。
+
+\texttt{actionEnabled} 采用 \texttt{Bool} 而非 \texttt{Prop}，
+使得 \texttt{actionsEnabledAlong} 可以通过 \texttt{native\_decide}
+直接计算验证，无需手动构造 \texttt{Decidable} 实例。
+这说明五个任务的 Lean 部分不再只证明“存在一条完成路径”，
 而是证明一个显式阶段机策略从初态出发会选择合法动作，并在有限步内完成目标。
 
 \subsection{证明统一思路}
@@ -720,7 +751,7 @@ Task 5 包含 4 个房间（\texttt{startRoom / southRoom / eastRoom / westRoom}
   \item 未形式化怪物 AI、击退、受伤时序和 shield 格挡的连续动力学。
   \item 未证明视觉模块一定能从 \texttt{obs} 中稳定恢复这些符号状态；
   该部分属于感知层，而不是当前 Lean 环境模型的覆盖范围。
-  \item 当前证明的是一条显式计划的可执行性和若干局部环境性质，
+  \item 当前证明的是显式策略的可执行性、动作合法性和若干局部环境性质，
   还没有证明“任意合法 planner 都能找到该计划”这类更强的完备性命题。
 \end{itemize}
 
@@ -775,11 +806,11 @@ Task 5 & 像素识别 + reward 记忆 + 阶段机 & success = 1.000；steps = 11
 检查对象 & 结果 & 说明 \\
 \midrule
 \path{KillMonsterFormalization.lean} & 通过 & 怪物击杀示例证明 \\
-\path{Task1EnvironmentFormalization.lean} & 通过 & Task 1 环境形式化 \\
-\path{Task2EnvironmentFormalization.lean} & 通过 & Task 2 环境形式化 \\
-\path{Task3EnvironmentFormalization.lean} & 通过 & Task 3 环境形式化 \\
-\path{Task4EnvironmentFormalization.lean} & 通过 & Task 4 环境形式化 \\
-\path{Task5EnvironmentFormalization.lean} & 通过 & Task 5 环境形式化与高层策略证明 \\
+\path{Task1EnvironmentFormalization.lean} & 通过 & Task 1 环境形式化与符号策略证明 \\
+\path{Task2EnvironmentFormalization.lean} & 通过 & Task 2 环境形式化与符号策略证明 \\
+\path{Task3EnvironmentFormalization.lean} & 通过 & Task 3 环境形式化与符号策略证明 \\
+\path{Task4EnvironmentFormalization.lean} & 通过 & Task 4 环境形式化与符号策略证明 \\
+\path{Task5EnvironmentFormalization.lean} & 通过 & Task 5 环境形式化与符号策略证明 \\
 \bottomrule
 \end{tabular}
 \caption{Lean 文件逐文件检查结果}

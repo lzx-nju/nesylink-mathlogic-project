@@ -617,4 +617,90 @@ theorem task2_completable :
     ∃ plan, GoalReached (run initialState plan) := by
   exact ⟨witnessPlan, witnessPlan_reaches_goal⟩
 
+/-! ### Symbolic policy formalization -/
+
+/--
+The abstract stage machine behind the task 2 baseline. This is the symbolic
+counterpart of the Python `build_task2_plan` routine: it ignores pixel-level
+waypoints and keeps only the high-level subgoal ordering that matters for the
+environment proof.
+-/
+inductive PolicyStage where
+  | killMonster
+  | openChest
+  | useExit
+  | done
+  deriving DecidableEq, Repr
+
+def policyStage (s : EnvState) : PolicyStage :=
+  if s.monsterAlive = true then PolicyStage.killMonster
+  else if s.chestOpened = false then PolicyStage.openChest
+  else if s.completed = false then PolicyStage.useExit
+  else PolicyStage.done
+
+/--
+State-driven zone-level policy. It maps the current symbolic state to the next
+high-level action: move to the zone required by the current stage, then perform
+the stage's interaction action (attack / openChest / useExit).
+-/
+def symbolicPolicy (s : EnvState) : Action :=
+  match policyStage s with
+  | PolicyStage.killMonster =>
+      if s.zone = Zone.nearMonster then Action.attack
+      else Action.moveTo Zone.nearMonster
+  | PolicyStage.openChest =>
+      if s.zone = Zone.nearChest then Action.openChest
+      else Action.moveTo Zone.nearChest
+  | PolicyStage.useExit =>
+      if s.zone = Zone.westExit then Action.useExit
+      else Action.moveTo Zone.westExit
+  | PolicyStage.done => Action.wait
+
+def policyStep (s : EnvState) : EnvState :=
+  step s (symbolicPolicy s)
+
+def runPolicy : Nat → EnvState → EnvState
+  | 0, s => s
+  | n + 1, s => runPolicy n (policyStep s)
+
+def policyTrace : Nat → EnvState → List Action
+  | 0, _ => []
+  | n + 1, s =>
+      let a := symbolicPolicy s
+      a :: policyTrace n (step s a)
+
+/-- Legal-action predicate for the symbolic transition layer (Bool version
+    for computable checking via `native_decide`). -/
+def actionEnabled (s : EnvState) : Action → Bool
+  | Action.moveTo z => z ≠ Zone.topTrap && z ≠ Zone.bottomTrap
+  | Action.attack => s.zone = Zone.nearMonster && s.monsterAlive = true && s.hp > 1
+  | Action.openChest => s.zone = Zone.nearChest && s.chestOpened = false
+  | Action.useExit => s.zone = Zone.westExit && !s.monsterAlive && s.keys > 0
+  | Action.wait => true
+
+def actionsEnabledAlong : EnvState → List Action → Bool
+  | _, [] => true
+  | s, a :: rest => actionEnabled s a && actionsEnabledAlong (step s a) rest
+
+theorem policyTrace_7_matches_witnessPlan :
+    policyTrace 7 initialState = witnessPlan := by
+  native_decide
+
+theorem policyTrace_7_actions_enabled :
+    actionsEnabledAlong initialState (policyTrace 7 initialState) = true := by
+  native_decide
+
+theorem symbolicPolicy_run_7_finalState :
+    runPolicy 7 initialState = finalState := by
+  native_decide
+
+theorem symbolicPolicy_reaches_goal :
+    GoalReached (runPolicy 7 initialState) := by
+  rw [symbolicPolicy_run_7_finalState]
+  simp [GoalReached, finalState]
+
+theorem task2_symbolicPolicy_completes :
+    ∃ n, GoalReached (runPolicy n initialState) := by
+  exact ⟨7, symbolicPolicy_reaches_goal⟩
+
 end Task2EnvironmentFormalization

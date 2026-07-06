@@ -314,4 +314,89 @@ theorem task3_completable :
     ∃ plan, GoalReached (run initialState plan) := by
   exact ⟨witnessPlan, witnessPlan_reaches_goal⟩
 
+/-! ### Symbolic policy formalization -/
+
+/--
+The abstract stage machine behind the task 3 baseline. This is the symbolic
+counterpart of the Python `decide_task3` routine: it ignores pixel-level
+waypoints and keeps only the high-level subgoal ordering that matters for the
+environment proof.
+-/
+inductive PolicyStage where
+  | getKey
+  | useExit
+  | done
+  deriving DecidableEq, Repr
+
+def policyStage (s : EnvState) : PolicyStage :=
+  if s.keyChestOpened = false then PolicyStage.getKey
+  else if s.completed = false then PolicyStage.useExit
+  else PolicyStage.done
+
+/--
+State-driven room-level policy. It maps the current symbolic state to the next
+high-level action, including navigation actions that move between rooms to reach
+the subgoal required by the current stage.
+-/
+def symbolicPolicy (s : EnvState) : Action :=
+  match policyStage s with
+  | PolicyStage.getKey =>
+      match s.room with
+      | Room.startRoom => Action.goWest
+      | Room.monsterHall => Action.goWest
+      | Room.keyRoom => Action.openChest
+  | PolicyStage.useExit =>
+      match s.room with
+      | Room.keyRoom => Action.goEast
+      | Room.monsterHall => Action.goEast
+      | Room.startRoom => Action.openLockedExit
+  | PolicyStage.done => Action.wait
+
+def policyStep (s : EnvState) : EnvState :=
+  step s (symbolicPolicy s)
+
+def runPolicy : Nat → EnvState → EnvState
+  | 0, s => s
+  | n + 1, s => runPolicy n (policyStep s)
+
+def policyTrace : Nat → EnvState → List Action
+  | 0, _ => []
+  | n + 1, s =>
+      let a := symbolicPolicy s
+      a :: policyTrace n (step s a)
+
+/-- Legal-action predicate for the symbolic transition layer (Bool version
+    for computable checking via `native_decide`). -/
+def actionEnabled (s : EnvState) : Action → Bool
+  | Action.goWest => s.room = Room.startRoom || s.room = Room.monsterHall
+  | Action.goEast => s.room = Room.keyRoom || s.room = Room.monsterHall
+  | Action.openChest => s.room = Room.keyRoom && !s.keyChestOpened
+  | Action.openLockedExit => s.room = Room.startRoom && s.keys > 0
+  | Action.wait => true
+
+def actionsEnabledAlong : EnvState → List Action → Bool
+  | _, [] => true
+  | s, a :: rest => actionEnabled s a && actionsEnabledAlong (step s a) rest
+
+theorem policyTrace_6_matches_witnessPlan :
+    policyTrace 6 initialState = witnessPlan := by
+  native_decide
+
+theorem policyTrace_6_actions_enabled :
+    actionsEnabledAlong initialState (policyTrace 6 initialState) = true := by
+  native_decide
+
+theorem symbolicPolicy_run_6_finalState :
+    runPolicy 6 initialState = finalState := by
+  native_decide
+
+theorem symbolicPolicy_reaches_goal :
+    GoalReached (runPolicy 6 initialState) := by
+  rw [symbolicPolicy_run_6_finalState]
+  simp [GoalReached, finalState]
+
+theorem task3_symbolicPolicy_completes :
+    ∃ n, GoalReached (runPolicy n initialState) := by
+  exact ⟨6, symbolicPolicy_reaches_goal⟩
+
 end Task3EnvironmentFormalization

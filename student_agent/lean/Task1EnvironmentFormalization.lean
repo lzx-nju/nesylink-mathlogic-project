@@ -325,4 +325,112 @@ theorem task1_completable :
     ∃ plan : List Action, GoalReached (run initialState plan) := by
   exact ⟨witnessPlan, witnessPlan_reaches_goal⟩
 
+/-! ### Symbolic policy formalization -/
+
+/--
+The abstract stage machine behind the task 1 baseline. This is the symbolic
+counterpart of the Python `build_task1_plan` routine: it ignores pixel-level
+frame counts and keeps only the high-level subgoal ordering that matters for
+the environment proof.
+-/
+inductive PolicyStage where
+  | openChest
+  | goNorth
+  | done
+  deriving DecidableEq, Repr
+
+def policyStage (s : EnvState) : PolicyStage :=
+  if s.chestOpened = false then PolicyStage.openChest
+  else if s.completed = false then PolicyStage.goNorth
+  else PolicyStage.done
+
+/--
+State-driven tile-level policy. It maps the current symbolic state to the next
+movement action, routing around walls to reach the chest tile `(0, 3)` first,
+then the north exit tile `(4, 0)`.
+
+Route to chest (stage `openChest`):
+  `(4,6) → right×3 → (7,6) → up×3 → (7,3) → left×7 → (0,3)`
+The detour to column 7 bypasses the wall on row 5 (cols 0–6). Row 3 is fully
+walkable, so the player proceeds left to the chest tile.
+
+Route to exit (stage `goNorth`):
+  `(0,3) → right×3 → (3,3) → up×3 → (3,0) → right×1 → (4,0)`
+The player ascends through column 3 (one of only two floor columns on row 2),
+then moves right to the exit tile.
+-/
+def symbolicPolicy (s : EnvState) : Action :=
+  match policyStage s with
+  | PolicyStage.openChest =>
+      if s.x = 0 ∧ s.y = 3 ∧ !s.chestOpened then
+        Action.openChest
+      else if s.y = 6 then
+        if s.x < 7 then Action.right else Action.up
+      else if s.x = 7 ∧ s.y > 3 then
+        Action.up
+      else if s.y = 3 ∧ s.x > 0 then
+        Action.left
+      else
+        Action.up
+  | PolicyStage.goNorth =>
+      if s.x = 4 ∧ s.y = 0 ∧ s.keys > 0 then
+        Action.goNorth
+      else if s.y = 3 ∧ s.x < 3 then
+        Action.right
+      else if s.x = 3 ∧ s.y > 0 then
+        Action.up
+      else if s.y = 0 ∧ s.x < 4 then
+        Action.right
+      else
+        Action.up
+  | PolicyStage.done => Action.up
+
+def policyStep (s : EnvState) : EnvState :=
+  step s (symbolicPolicy s)
+
+def runPolicy : Nat → EnvState → EnvState
+  | 0, s => s
+  | n + 1, s => runPolicy n (policyStep s)
+
+def policyTrace : Nat → EnvState → List Action
+  | 0, _ => []
+  | n + 1, s =>
+      let a := symbolicPolicy s
+      a :: policyTrace n (step s a)
+
+/-- Legal-action predicate for the symbolic transition layer (Bool version
+    for computable checking via `native_decide`). -/
+def actionEnabled (s : EnvState) : Action → Bool
+  | Action.up => isWalkable s.x (s.y - 1)
+  | Action.down => isWalkable s.x (s.y + 1)
+  | Action.left => isWalkable (s.x - 1) s.y
+  | Action.right => isWalkable (s.x + 1) s.y
+  | Action.openChest => isAdjacentToChest s.x s.y && !s.chestOpened
+  | Action.goNorth => s.x = 4 && s.y = 0 && s.keys > 0
+
+def actionsEnabledAlong : EnvState → List Action → Bool
+  | _, [] => true
+  | s, a :: rest => actionEnabled s a && actionsEnabledAlong (step s a) rest
+
+theorem policyTrace_22_matches_witnessPlan :
+    policyTrace 22 initialState = witnessPlan := by
+  native_decide
+
+theorem policyTrace_22_actions_enabled :
+    actionsEnabledAlong initialState (policyTrace 22 initialState) = true := by
+  native_decide
+
+theorem symbolicPolicy_run_22_finalState :
+    runPolicy 22 initialState = finalState := by
+  native_decide
+
+theorem symbolicPolicy_reaches_goal :
+    GoalReached (runPolicy 22 initialState) := by
+  rw [symbolicPolicy_run_22_finalState]
+  simp [GoalReached, finalState]
+
+theorem task1_symbolicPolicy_completes :
+    ∃ n, GoalReached (runPolicy n initialState) := by
+  exact ⟨22, symbolicPolicy_reaches_goal⟩
+
 end Task1EnvironmentFormalization

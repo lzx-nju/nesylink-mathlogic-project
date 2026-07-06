@@ -795,4 +795,155 @@ theorem task4_completable :
     ∃ plan, GoalReached (run initialState plan) := by
   exact ⟨witnessPlan, witnessPlan_reaches_goal⟩
 
+/-! ### Symbolic policy formalization -/
+
+/--
+The abstract stage machine behind the task 4 baseline. This is the symbolic
+counterpart of the Python `decide_task4` routine: it ignores pixel-level
+waypoints and keeps only the high-level subgoal ordering that matters for the
+environment proof.
+-/
+inductive PolicyStage where
+  | getKey
+  | getSword
+  | killGuardian
+  | openFinalChest
+  | done
+  deriving DecidableEq, Repr
+
+def policyStage (s : EnvState) : PolicyStage :=
+  if s.northChestOpened = false then PolicyStage.getKey
+  else if s.eastChestOpened = false then PolicyStage.getSword
+  else if s.guardianAlive = true then PolicyStage.killGuardian
+  else if s.finalChestOpened = false then PolicyStage.openFinalChest
+  else PolicyStage.done
+
+/-- The bridge state required by each stage to reach its target room. -/
+def desiredBridge (stage : PolicyStage) : BridgeState :=
+  match stage with
+  | PolicyStage.getKey => BridgeState.westToNorth
+  | PolicyStage.getSword => BridgeState.westToEast
+  | PolicyStage.killGuardian => BridgeState.westToSouth
+  | PolicyStage.openFinalChest => BridgeState.westToSouth
+  | PolicyStage.done => BridgeState.westToNorth
+
+/--
+State-driven room-level policy. It maps the current symbolic state to the next
+high-level action, including bridge toggling in the west room and navigation
+through the center room to reach the subgoal required by the current stage.
+
+Stage route:
+  west (toggle bridge) → center → north (open chest for key)
+  → center → west (toggle bridge) → center → east (open chest for sword)
+  → center → west (toggle bridge) → center → south (attack guardian)
+  → center (open final chest)
+-/
+def symbolicPolicy (s : EnvState) : Action :=
+  match policyStage s with
+  | PolicyStage.getKey =>
+      match s.room with
+      | Room.west =>
+          if s.bridge = desiredBridge PolicyStage.getKey then
+            Action.goCenter
+          else
+            Action.toggleBridge
+      | Room.center =>
+          if bridgeAllowsNorth s.bridge then
+            Action.goNorth
+          else
+            Action.goWest
+      | Room.north => Action.openChest
+      | _ => Action.goCenter
+  | PolicyStage.getSword =>
+      match s.room with
+      | Room.west =>
+          if s.bridge = desiredBridge PolicyStage.getSword then
+            Action.goCenter
+          else
+            Action.toggleBridge
+      | Room.center =>
+          if bridgeAllowsEast s.bridge ∧ hasKey s then
+            Action.goEast
+          else
+            Action.goWest
+      | Room.east => Action.openChest
+      | _ => Action.goCenter
+  | PolicyStage.killGuardian =>
+      match s.room with
+      | Room.west =>
+          if s.bridge = desiredBridge PolicyStage.killGuardian then
+            Action.goCenter
+          else
+            Action.toggleBridge
+      | Room.center =>
+          if bridgeAllowsSouth s.bridge then
+            Action.goSouth
+          else
+            Action.goWest
+      | Room.south => Action.attack
+      | _ => Action.goCenter
+  | PolicyStage.openFinalChest =>
+      match s.room with
+      | Room.center => Action.openFinalChest
+      | _ => Action.goCenter
+  | PolicyStage.done => Action.wait
+
+def policyStep (s : EnvState) : EnvState :=
+  step s (symbolicPolicy s)
+
+def runPolicy : Nat → EnvState → EnvState
+  | 0, s => s
+  | n + 1, s => runPolicy n (policyStep s)
+
+def policyTrace : Nat → EnvState → List Action
+  | 0, _ => []
+  | n + 1, s =>
+      let a := symbolicPolicy s
+      a :: policyTrace n (step s a)
+
+/-- Legal-action predicate for the symbolic transition layer (Bool version
+    for computable checking via `native_decide`). -/
+def actionEnabled (s : EnvState) : Action → Bool
+  | Action.toggleBridge => s.room = Room.west
+  | Action.goCenter =>
+      s.room = Room.west || s.room = Room.north ||
+      s.room = Room.east || s.room = Room.south
+  | Action.goWest => s.room = Room.center
+  | Action.goNorth => s.room = Room.center && (bridgeAllowsNorth s.bridge)
+  | Action.goEast => s.room = Room.center && (bridgeAllowsEast s.bridge) && hasKey s
+  | Action.goSouth => s.room = Room.center && (bridgeAllowsSouth s.bridge)
+  | Action.openChest =>
+      (s.room = Room.north && s.northChestOpened = false) ||
+      (s.room = Room.east && s.eastChestOpened = false)
+  | Action.attack =>
+      s.room = Room.south && s.guardianAlive = true && s.hasSword = true
+  | Action.openFinalChest =>
+      s.room = Room.center && s.finalChestVisible = true
+  | Action.wait => true
+
+def actionsEnabledAlong : EnvState → List Action → Bool
+  | _, [] => true
+  | s, a :: rest => actionEnabled s a && actionsEnabledAlong (step s a) rest
+
+theorem policyTrace_17_matches_witnessPlan :
+    policyTrace 17 initialState = witnessPlan := by
+  native_decide
+
+theorem policyTrace_17_actions_enabled :
+    actionsEnabledAlong initialState (policyTrace 17 initialState) = true := by
+  native_decide
+
+theorem symbolicPolicy_run_17_finalState :
+    runPolicy 17 initialState = finalState := by
+  native_decide
+
+theorem symbolicPolicy_reaches_goal :
+    GoalReached (runPolicy 17 initialState) := by
+  rw [symbolicPolicy_run_17_finalState]
+  simp [GoalReached, finalState]
+
+theorem task4_symbolicPolicy_completes :
+    ∃ n, GoalReached (runPolicy n initialState) := by
+  exact ⟨17, symbolicPolicy_reaches_goal⟩
+
 end Task4EnvironmentFormalization
