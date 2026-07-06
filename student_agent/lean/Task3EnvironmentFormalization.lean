@@ -109,15 +109,179 @@ theorem openLockedExit_consumes_key_and_completes
     t.keys = s.keys - 1 ∧ t.completed = true := by
   simp [step, hRoom, hKeys]
 
-theorem navigation_preserves_hallMonsterAlive
-    {s : EnvState} {a : Action}
-    (ha : a = Action.goWest ∨ a = Action.goEast) :
+/-! ### Chest lemmas -/
+
+theorem openChest_only_in_keyRoom
+    {s : EnvState} (hRoom : s.room ≠ Room.keyRoom) :
+    step s Action.openChest = s := by
+  simp [step, hRoom]
+
+theorem openChest_already_opened
+    {s : EnvState} (hChest : s.keyChestOpened = true) :
+    step s Action.openChest = s := by
+  simp [step, hChest]
+
+theorem openChest_in_keyRoom_marks_opened
+    {s : EnvState}
+    (hRoom : s.room = Room.keyRoom)
+    (hChest : s.keyChestOpened = false) :
+    (step s Action.openChest).keyChestOpened = true := by
+  simp [step, hRoom, hChest]
+
+/-! ### Locked exit lemmas -/
+
+theorem openLockedExit_blocked_not_in_startRoom
+    {s : EnvState} (hRoom : s.room ≠ Room.startRoom) :
+    step s Action.openLockedExit = s := by
+  simp [step, hRoom]
+
+theorem openLockedExit_preserves_room
+    {s : EnvState} : (step s Action.openLockedExit).room = s.room := by
+  by_cases h1 : s.room = Room.startRoom ∧ s.keys > 0
+  · simp [step, h1]
+  · simp [step, h1]
+
+theorem openLockedExit_preserves_keyChestOpened
+    {s : EnvState} : (step s Action.openLockedExit).keyChestOpened = s.keyChestOpened := by
+  by_cases h1 : s.room = Room.startRoom ∧ s.keys > 0
+  · simp [step, h1]
+  · simp [step, h1]
+
+/-! ### Necessity lemmas -/
+
+/-- Non-openLockedExit actions preserve the `completed` field. -/
+theorem non_openLockedExit_preserves_completed
+    {s : EnvState} (a : Action) (ha : a ≠ Action.openLockedExit) :
+    (step s a).completed = s.completed := by
+  cases a with
+  | goWest => unfold step; cases s.room <;> rfl
+  | goEast => unfold step; cases s.room <;> rfl
+  | openChest =>
+    by_cases h1 : s.room = Room.keyRoom ∧ s.keyChestOpened = false
+    · simp [step, h1]
+    · simp [step, h1]
+  | openLockedExit => exact absurd rfl ha
+  | wait => simp [step]
+
+/-- `openLockedExit` is the only action that can flip `completed` from `false`
+    to `true`. -/
+theorem only_openLockedExit_sets_completed
+    {s : EnvState} (hs : s.completed = false) (a : Action)
+    (h : (step s a).completed = true) : a = Action.openLockedExit := by
+  by_cases ha : a = Action.openLockedExit
+  · exact ha
+  · have := non_openLockedExit_preserves_completed (s := s) a ha
+    rw [this, hs] at h
+    simp at h
+
+/-! ### Action-wise invariant lemmas -/
+
+/-- `hallMonsterAlive` never changes (no attack action in Task 3). -/
+theorem hallMonsterAlive_never_changes
+    {s : EnvState} (a : Action) :
     (step s a).hallMonsterAlive = s.hallMonsterAlive := by
-  rcases ha with rfl | rfl
-  · dsimp [step]
-    split <;> rfl
-  · dsimp [step]
-    split <;> rfl
+  cases a with
+  | goWest => unfold step; cases s.room <;> rfl
+  | goEast => unfold step; cases s.room <;> rfl
+  | openChest =>
+    by_cases h1 : s.room = Room.keyRoom ∧ s.keyChestOpened = false
+    · simp [step, h1]
+    · simp [step, h1]
+  | openLockedExit =>
+    by_cases h1 : s.room = Room.startRoom ∧ s.keys > 0
+    · simp [step, h1]
+    · simp [step, h1]
+  | wait => simp [step]
+
+/-- `openChest` is the only action that can change `keyChestOpened`. -/
+theorem only_openChest_changes_keyChestOpened
+    {s : EnvState} (a : Action) (ha : a ≠ Action.openChest) :
+    (step s a).keyChestOpened = s.keyChestOpened := by
+  cases a with
+  | goWest => unfold step; cases s.room <;> rfl
+  | goEast => unfold step; cases s.room <;> rfl
+  | openChest => exact absurd rfl ha
+  | openLockedExit =>
+    by_cases h1 : s.room = Room.startRoom ∧ s.keys > 0
+    · simp [step, h1]
+    · simp [step, h1]
+  | wait => simp [step]
+
+/-- Only `openChest` (gains) and `openLockedExit` (consumes) can change `keys`. -/
+theorem only_openChest_or_openLockedExit_changes_keys
+    {s : EnvState} (a : Action)
+    (ha : a ≠ Action.openChest) (ha' : a ≠ Action.openLockedExit) :
+    (step s a).keys = s.keys := by
+  cases a with
+  | goWest => unfold step; cases s.room <;> rfl
+  | goEast => unfold step; cases s.room <;> rfl
+  | openChest => exact absurd rfl ha
+  | openLockedExit => exact absurd rfl ha'
+  | wait => simp [step]
+
+/-! ### Reachable states and invariants -/
+
+/-- Reachability: states reachable from `initialState` via arbitrary actions. -/
+inductive Reachable : EnvState → Prop where
+  | init : Reachable initialState
+  | step (s : EnvState) (a : Action) : Reachable s → Reachable (step s a)
+
+/-- Invariant: if the key chest is not opened then no keys have been collected. -/
+theorem keyChestOpened_or_keys_zero {s : EnvState} (hr : Reachable s) :
+    s.keyChestOpened = true ∨ s.keys = 0 := by
+  induction hr with
+  | init => simp [initialState]
+  | step s a hr ih =>
+    cases a with
+    | goWest => unfold step; cases s.room <;> simp <;> exact ih
+    | goEast => unfold step; cases s.room <;> simp <;> exact ih
+    | openChest =>
+      by_cases h1 : s.room = Room.keyRoom ∧ s.keyChestOpened = false
+      · left; simp [step, h1]
+      · simp [step, h1]; exact ih
+    | openLockedExit =>
+      by_cases h1 : s.room = Room.startRoom ∧ s.keys > 0
+      · rcases ih with (h | h)
+        · left; simp [step, h1, h]
+        · right; omega
+      · simp [step, h1]; exact ih
+    | wait => simp [step]; exact ih
+
+/-- If a reachable state has `completed = true`, then the key chest has been
+    opened. (We cannot conclude `room = startRoom` because the player may
+    navigate away after completing the task.) -/
+theorem completion_postcondition {s : EnvState} (hr : Reachable s) (hc : s.completed = true) :
+    s.keyChestOpened = true := by
+  induction hr with
+  | init => simp [initialState] at hc
+  | step s' a hr ih =>
+    by_cases hs : s'.completed = true
+    · have hch := ih hs
+      have hch' : (step s' a).keyChestOpened = s'.keyChestOpened := by
+        by_cases ha : a = Action.openChest
+        · subst ha
+          have hstep : step s' Action.openChest = s' := openChest_already_opened hch
+          simp [hstep, hch]
+        · exact only_openChest_changes_keyChestOpened a ha
+      simp [hch', hch]
+    · have hf : s'.completed = false := by
+        cases h : s'.completed with
+        | true => exact absurd h hs
+        | false => rfl
+      have ha : a = Action.openLockedExit := only_openLockedExit_sets_completed hf a hc
+      subst ha
+      by_cases hcond : s'.room = Room.startRoom ∧ s'.keys > 0
+      · have hchest : s'.keyChestOpened = true := by
+          have h_cases := keyChestOpened_or_keys_zero hr
+          rcases h_cases with (h | h)
+          · exact h
+          · rw [h] at hcond; simp at hcond
+        have hch' : (step s' Action.openLockedExit).keyChestOpened = s'.keyChestOpened :=
+          openLockedExit_preserves_keyChestOpened
+        simp [hch', hchest]
+      · have hstep : step s' Action.openLockedExit = s' := by simp [step, hcond]
+        rw [hstep, hf] at hc
+        simp at hc
 
 def witnessPlan : List Action :=
   [

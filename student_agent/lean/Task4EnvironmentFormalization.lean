@@ -211,6 +211,543 @@ theorem openFinalChest_requires_visibility
     step s Action.openFinalChest = s := by
   simp [step, hRoom, hVisible]
 
+theorem openFinalChest_blocked_not_in_center
+    {s : EnvState} (hRoom : s.room ≠ Room.center) :
+    step s Action.openFinalChest = s := by
+  simp [step, hRoom]
+
+theorem openFinalChest_succeeds_when_visible
+    {s : EnvState}
+    (hRoom : s.room = Room.center)
+    (hVisible : s.finalChestVisible = true) :
+    (step s Action.openFinalChest).finalChestOpened = true := by
+  simp [step, hRoom, hVisible]
+
+/-! ### toggleBridge lemmas -/
+
+theorem toggleBridge_only_in_west
+    {s : EnvState} (hRoom : s.room ≠ Room.west) :
+    step s Action.toggleBridge = s := by
+  simp [step, hRoom]
+
+/-! ### Navigation lemmas -/
+
+/-- `goEast` does NOT consume keys (Python conditional exit behavior).
+    This is an explicit invariant per project convention. -/
+theorem goEast_preserves_keys
+    {s : EnvState} : (step s Action.goEast).keys = s.keys := by
+  by_cases h1 : s.room = Room.center ∧ bridgeAllowsEast s.bridge ∧ hasKey s
+  · simp [step, h1]
+  · simp [step, h1]
+
+/-! ### Chest lemmas (north and east independent) -/
+
+theorem openChest_north_only
+    {s : EnvState}
+    (hRoom : s.room ≠ Room.north)
+    (hRoom' : s.room ≠ Room.east) :
+    step s Action.openChest = s := by
+  show (if s.room = Room.north ∧ s.northChestOpened = false then
+        { s with northChestOpened := true, keys := s.keys + 1 }
+       else if s.room = Room.east ∧ s.eastChestOpened = false then
+        { s with eastChestOpened := true, hasSword := true }
+       else s) = s
+  by_cases h1 : s.room = Room.north ∧ s.northChestOpened = false
+  · exact absurd h1.1 hRoom
+  · by_cases h2 : s.room = Room.east ∧ s.eastChestOpened = false
+    · exact absurd h2.1 hRoom'
+    · simp [h1, h2]
+
+theorem openChest_north_increases_keys
+    {s : EnvState}
+    (hRoom : s.room = Room.north)
+    (hChest : s.northChestOpened = false) :
+    (step s Action.openChest).keys = s.keys + 1 := by
+  simp [step, hRoom, hChest]
+
+theorem openChest_north_marks_opened
+    {s : EnvState}
+    (hRoom : s.room = Room.north)
+    (hChest : s.northChestOpened = false) :
+    (step s Action.openChest).northChestOpened = true := by
+  simp [step, hRoom, hChest]
+
+theorem openChest_north_already_opened
+    {s : EnvState}
+    (hRoom : s.room = Room.north)
+    (hChest : s.northChestOpened = true) :
+    step s Action.openChest = s := by
+  simp [step, hRoom, hChest]
+
+theorem openChest_east_grants_sword
+    {s : EnvState}
+    (hRoom : s.room = Room.east)
+    (hChest : s.eastChestOpened = false) :
+    (step s Action.openChest).hasSword = true := by
+  have hNorth : ¬(s.room = Room.north ∧ s.northChestOpened = false) := by
+    intro h; rw [hRoom] at h; simp at h
+  simp [step, hRoom, hChest]
+
+theorem openChest_east_marks_opened
+    {s : EnvState}
+    (hRoom : s.room = Room.east)
+    (hChest : s.eastChestOpened = false) :
+    (step s Action.openChest).eastChestOpened = true := by
+  have hNorth : ¬(s.room = Room.north ∧ s.northChestOpened = false) := by
+    intro h; rw [hRoom] at h; simp at h
+  simp [step, hRoom, hChest]
+
+theorem openChest_east_already_opened
+    {s : EnvState}
+    (hRoom : s.room = Room.east)
+    (hChest : s.eastChestOpened = true) :
+    step s Action.openChest = s := by
+  have hNorth : ¬(s.room = Room.north ∧ s.northChestOpened = false) := by
+    intro h; rw [hRoom] at h; simp at h
+  simp [step, hRoom, hChest]
+
+/-! ### openFinalChest preserves lemmas -/
+
+theorem openFinalChest_preserves_guardianAlive
+    {s : EnvState} : (step s Action.openFinalChest).guardianAlive = s.guardianAlive := by
+  by_cases h1 : s.room = Room.center ∧ s.finalChestVisible = true
+  · simp [step, h1]
+  · simp [step, h1]
+
+/-! ### Necessity lemmas -/
+
+/-- Non-openFinalChest actions preserve the `finalChestOpened` field. -/
+theorem non_openFinalChest_preserves_finalChestOpened
+    {s : EnvState} (a : Action) (ha : a ≠ Action.openFinalChest) :
+    (step s a).finalChestOpened = s.finalChestOpened := by
+  cases a with
+  | toggleBridge =>
+    by_cases h1 : s.room = Room.west
+    · simp [step, h1]
+    · simp [step, h1]
+  | goCenter =>
+    by_cases h1 : s.room = Room.west ∨ s.room = Room.north ∨ s.room = Room.east ∨ s.room = Room.south
+    · simp [step, h1]
+    · simp [step, h1]
+  | goWest =>
+    by_cases h1 : s.room = Room.center
+    · simp [step, h1]
+    · simp [step, h1]
+  | goNorth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsNorth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | goEast =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsEast s.bridge ∧ hasKey s
+    · simp [step, h1]
+    · simp [step, h1]
+  | goSouth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsSouth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | openChest =>
+    by_cases h1 : s.room = Room.north ∧ s.northChestOpened = false
+    · simp [step, h1]
+    · by_cases h2 : s.room = Room.east ∧ s.eastChestOpened = false
+      · simp [step, h2]
+      · simp [step, h1, h2]
+  | attack =>
+    by_cases h1 : s.room = Room.south ∧ s.guardianAlive = true ∧ s.hasSword = true
+    · simp [step, h1]
+    · simp [step, h1]
+  | openFinalChest => exact absurd rfl ha
+  | wait => simp [step]
+
+/-- `openFinalChest` is the only action that can flip `finalChestOpened` from
+    `false` to `true`. -/
+theorem only_openFinalChest_sets_finalChestOpened
+    {s : EnvState} (hs : s.finalChestOpened = false) (a : Action)
+    (h : (step s a).finalChestOpened = true) : a = Action.openFinalChest := by
+  by_cases ha : a = Action.openFinalChest
+  · exact ha
+  · have := non_openFinalChest_preserves_finalChestOpened (s := s) a ha
+    rw [this, hs] at h
+    simp at h
+
+/-! ### Action-wise invariant lemmas -/
+
+/-- `attack` is the only action that can change `guardianAlive`. -/
+theorem only_attack_changes_guardianAlive
+    {s : EnvState} (a : Action) (ha : a ≠ Action.attack) :
+    (step s a).guardianAlive = s.guardianAlive := by
+  cases a with
+  | toggleBridge =>
+    by_cases h1 : s.room = Room.west
+    · simp [step, h1]
+    · simp [step, h1]
+  | goCenter =>
+    by_cases h1 : s.room = Room.west ∨ s.room = Room.north ∨ s.room = Room.east ∨ s.room = Room.south
+    · simp [step, h1]
+    · simp [step, h1]
+  | goWest =>
+    by_cases h1 : s.room = Room.center
+    · simp [step, h1]
+    · simp [step, h1]
+  | goNorth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsNorth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | goEast =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsEast s.bridge ∧ hasKey s
+    · simp [step, h1]
+    · simp [step, h1]
+  | goSouth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsSouth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | openChest =>
+    by_cases h1 : s.room = Room.north ∧ s.northChestOpened = false
+    · simp [step, h1]
+    · by_cases h2 : s.room = Room.east ∧ s.eastChestOpened = false
+      · simp [step, h2]
+      · simp [step, h1, h2]
+  | attack => exact absurd rfl ha
+  | openFinalChest =>
+    by_cases h1 : s.room = Room.center ∧ s.finalChestVisible = true
+    · simp [step, h1]
+    · simp [step, h1]
+  | wait => simp [step]
+
+/-- `attack` is the only action that can change `finalChestVisible` (it reveals
+    the final chest when the guardian is defeated). -/
+theorem only_attack_changes_finalChestVisible
+    {s : EnvState} (a : Action) (ha : a ≠ Action.attack) :
+    (step s a).finalChestVisible = s.finalChestVisible := by
+  cases a with
+  | toggleBridge =>
+    by_cases h1 : s.room = Room.west
+    · simp [step, h1]
+    · simp [step, h1]
+  | goCenter =>
+    by_cases h1 : s.room = Room.west ∨ s.room = Room.north ∨ s.room = Room.east ∨ s.room = Room.south
+    · simp [step, h1]
+    · simp [step, h1]
+  | goWest =>
+    by_cases h1 : s.room = Room.center
+    · simp [step, h1]
+    · simp [step, h1]
+  | goNorth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsNorth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | goEast =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsEast s.bridge ∧ hasKey s
+    · simp [step, h1]
+    · simp [step, h1]
+  | goSouth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsSouth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | openChest =>
+    by_cases h1 : s.room = Room.north ∧ s.northChestOpened = false
+    · simp [step, h1]
+    · by_cases h2 : s.room = Room.east ∧ s.eastChestOpened = false
+      · simp [step, h2]
+      · simp [step, h1, h2]
+  | attack => exact absurd rfl ha
+  | openFinalChest =>
+    by_cases h1 : s.room = Room.center ∧ s.finalChestVisible = true
+    · simp [step, h1]
+    · simp [step, h1]
+  | wait => simp [step]
+
+/-- `openChest` is the only action that can change `northChestOpened`. -/
+theorem only_openChest_changes_northChestOpened
+    {s : EnvState} (a : Action) (ha : a ≠ Action.openChest) :
+    (step s a).northChestOpened = s.northChestOpened := by
+  cases a with
+  | toggleBridge =>
+    by_cases h1 : s.room = Room.west
+    · simp [step, h1]
+    · simp [step, h1]
+  | goCenter =>
+    by_cases h1 : s.room = Room.west ∨ s.room = Room.north ∨ s.room = Room.east ∨ s.room = Room.south
+    · simp [step, h1]
+    · simp [step, h1]
+  | goWest =>
+    by_cases h1 : s.room = Room.center
+    · simp [step, h1]
+    · simp [step, h1]
+  | goNorth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsNorth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | goEast =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsEast s.bridge ∧ hasKey s
+    · simp [step, h1]
+    · simp [step, h1]
+  | goSouth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsSouth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | openChest => exact absurd rfl ha
+  | attack =>
+    by_cases h1 : s.room = Room.south ∧ s.guardianAlive = true ∧ s.hasSword = true
+    · simp [step, h1]
+    · simp [step, h1]
+  | openFinalChest =>
+    by_cases h1 : s.room = Room.center ∧ s.finalChestVisible = true
+    · simp [step, h1]
+    · simp [step, h1]
+  | wait => simp [step]
+
+/-- `openChest` is the only action that can change `eastChestOpened`. -/
+theorem only_openChest_changes_eastChestOpened
+    {s : EnvState} (a : Action) (ha : a ≠ Action.openChest) :
+    (step s a).eastChestOpened = s.eastChestOpened := by
+  cases a with
+  | toggleBridge =>
+    by_cases h1 : s.room = Room.west
+    · simp [step, h1]
+    · simp [step, h1]
+  | goCenter =>
+    by_cases h1 : s.room = Room.west ∨ s.room = Room.north ∨ s.room = Room.east ∨ s.room = Room.south
+    · simp [step, h1]
+    · simp [step, h1]
+  | goWest =>
+    by_cases h1 : s.room = Room.center
+    · simp [step, h1]
+    · simp [step, h1]
+  | goNorth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsNorth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | goEast =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsEast s.bridge ∧ hasKey s
+    · simp [step, h1]
+    · simp [step, h1]
+  | goSouth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsSouth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | openChest => exact absurd rfl ha
+  | attack =>
+    by_cases h1 : s.room = Room.south ∧ s.guardianAlive = true ∧ s.hasSword = true
+    · simp [step, h1]
+    · simp [step, h1]
+  | openFinalChest =>
+    by_cases h1 : s.room = Room.center ∧ s.finalChestVisible = true
+    · simp [step, h1]
+    · simp [step, h1]
+  | wait => simp [step]
+
+/-- Only `openChest` (north branch) can change `keys`. -/
+theorem only_openChest_changes_keys
+    {s : EnvState} (a : Action) (ha : a ≠ Action.openChest) :
+    (step s a).keys = s.keys := by
+  cases a with
+  | toggleBridge =>
+    by_cases h1 : s.room = Room.west
+    · simp [step, h1]
+    · simp [step, h1]
+  | goCenter =>
+    by_cases h1 : s.room = Room.west ∨ s.room = Room.north ∨ s.room = Room.east ∨ s.room = Room.south
+    · simp [step, h1]
+    · simp [step, h1]
+  | goWest =>
+    by_cases h1 : s.room = Room.center
+    · simp [step, h1]
+    · simp [step, h1]
+  | goNorth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsNorth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | goEast =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsEast s.bridge ∧ hasKey s
+    · simp [step, h1]
+    · simp [step, h1]
+  | goSouth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsSouth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | openChest => exact absurd rfl ha
+  | attack =>
+    by_cases h1 : s.room = Room.south ∧ s.guardianAlive = true ∧ s.hasSword = true
+    · simp [step, h1]
+    · simp [step, h1]
+  | openFinalChest =>
+    by_cases h1 : s.room = Room.center ∧ s.finalChestVisible = true
+    · simp [step, h1]
+    · simp [step, h1]
+  | wait => simp [step]
+
+/-- `hasShield` never changes (shield is in initial state and never modified). -/
+theorem hasShield_never_changes
+    {s : EnvState} (a : Action) : (step s a).hasShield = s.hasShield := by
+  cases a with
+  | toggleBridge =>
+    by_cases h1 : s.room = Room.west
+    · simp [step, h1]
+    · simp [step, h1]
+  | goCenter =>
+    by_cases h1 : s.room = Room.west ∨ s.room = Room.north ∨ s.room = Room.east ∨ s.room = Room.south
+    · simp [step, h1]
+    · simp [step, h1]
+  | goWest =>
+    by_cases h1 : s.room = Room.center
+    · simp [step, h1]
+    · simp [step, h1]
+  | goNorth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsNorth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | goEast =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsEast s.bridge ∧ hasKey s
+    · simp [step, h1]
+    · simp [step, h1]
+  | goSouth =>
+    by_cases h1 : s.room = Room.center ∧ bridgeAllowsSouth s.bridge
+    · simp [step, h1]
+    · simp [step, h1]
+  | openChest =>
+    by_cases h1 : s.room = Room.north ∧ s.northChestOpened = false
+    · simp [step, h1]
+    · by_cases h2 : s.room = Room.east ∧ s.eastChestOpened = false
+      · simp [step, h2]
+      · simp [step, h1, h2]
+  | attack =>
+    by_cases h1 : s.room = Room.south ∧ s.guardianAlive = true ∧ s.hasSword = true
+    · simp [step, h1]
+    · simp [step, h1]
+  | openFinalChest =>
+    by_cases h1 : s.room = Room.center ∧ s.finalChestVisible = true
+    · simp [step, h1]
+    · simp [step, h1]
+  | wait => simp [step]
+
+/-! ### Reachable states and invariants -/
+
+/-- Reachability: states reachable from `initialState` via arbitrary actions. -/
+inductive Reachable : EnvState → Prop where
+  | init : Reachable initialState
+  | step (s : EnvState) (a : Action) : Reachable s → Reachable (step s a)
+
+/-- Invariant: if the north chest is not opened then no keys have been collected. -/
+theorem northChestOpened_or_keys_zero {s : EnvState} (hr : Reachable s) :
+    s.northChestOpened = true ∨ s.keys = 0 := by
+  induction hr with
+  | init => simp [initialState]
+  | step s a hr ih =>
+    cases a with
+    | toggleBridge =>
+      by_cases h1 : s.room = Room.west
+      · simp [step, h1]; exact ih
+      · simp [step, h1]; exact ih
+    | goCenter =>
+      by_cases h1 : s.room = Room.west ∨ s.room = Room.north ∨ s.room = Room.east ∨ s.room = Room.south
+      · simp [step, h1]; exact ih
+      · simp [step, h1]; exact ih
+    | goWest =>
+      by_cases h1 : s.room = Room.center
+      · simp [step, h1]; exact ih
+      · simp [step, h1]; exact ih
+    | goNorth =>
+      by_cases h1 : s.room = Room.center ∧ bridgeAllowsNorth s.bridge
+      · simp [step, h1]; exact ih
+      · simp [step, h1]; exact ih
+    | goEast =>
+      by_cases h1 : s.room = Room.center ∧ bridgeAllowsEast s.bridge ∧ hasKey s
+      · simp [step, h1]; exact ih
+      · simp [step, h1]; exact ih
+    | goSouth =>
+      by_cases h1 : s.room = Room.center ∧ bridgeAllowsSouth s.bridge
+      · simp [step, h1]; exact ih
+      · simp [step, h1]; exact ih
+    | openChest =>
+      by_cases h1 : s.room = Room.north ∧ s.northChestOpened = false
+      · left; simp [step, h1]
+      · by_cases h2 : s.room = Room.east ∧ s.eastChestOpened = false
+        · simp [step, h2]; exact ih
+        · simp [step, h1, h2]; exact ih
+    | attack =>
+      by_cases h1 : s.room = Room.south ∧ s.guardianAlive = true ∧ s.hasSword = true
+      · simp [step, h1]; exact ih
+      · simp [step, h1]; exact ih
+    | openFinalChest =>
+      by_cases h1 : s.room = Room.center ∧ s.finalChestVisible = true
+      · simp [step, h1]; exact ih
+      · simp [step, h1]; exact ih
+    | wait => simp [step]; exact ih
+
+/-- Safety invariant: `keys` never decreases below zero (trivially true for
+    `Nat`, but stated for documentation). -/
+theorem keys_non_negative {s : EnvState} (_ : Reachable s) : s.keys ≥ 0 := by
+  omega
+
+/-- Helper invariant: if `finalChestVisible = true` then `guardianAlive = false`
+    (the final chest is only revealed when the guardian is defeated by attack). -/
+theorem finalChestVisible_implies_guardianDead {s : EnvState} (hr : Reachable s)
+    (hv : s.finalChestVisible = true) : s.guardianAlive = false := by
+  induction hr with
+  | init => simp [initialState] at hv
+  | step s' a hr ih =>
+    by_cases hs : s'.finalChestVisible = true
+    · have hguard' : (step s' a).guardianAlive = s'.guardianAlive := by
+        by_cases ha : a = Action.attack
+        · subst ha
+          have hcond : ¬(s'.room = Room.south ∧ s'.guardianAlive = true ∧ s'.hasSword = true) := by
+            intro h; have := ih hs; rw [this] at h; simp at h
+          simp [step, hcond]
+        · exact only_attack_changes_guardianAlive a ha
+      rw [hguard']
+      exact ih hs
+    · have hf : s'.finalChestVisible = false := by
+        cases h : s'.finalChestVisible with
+        | true => exact absurd h hs
+        | false => rfl
+      have ha : a = Action.attack := by
+        by_cases h' : a = Action.attack
+        · exact h'
+        · have := only_attack_changes_finalChestVisible (s := s') a h'
+          rw [this, hf] at hv
+          simp at hv
+      subst ha
+      by_cases hcond : s'.room = Room.south ∧ s'.guardianAlive = true ∧ s'.hasSword = true
+      · simp [step, hcond]
+      · have hstep : step s' Action.attack = s' := by simp [step, hcond]
+        rw [hstep, hf] at hv
+        simp at hv
+
+/-- If a reachable state has `finalChestOpened = true`, then the guardian has
+    been defeated. (Room position is not part of the postcondition because the
+    player may move after opening the final chest.) -/
+theorem completion_postcondition {s : EnvState} (hr : Reachable s)
+    (hc : s.finalChestOpened = true) :
+    s.guardianAlive = false := by
+  induction hr with
+  | init => simp [initialState] at hc
+  | step s' a hr ih =>
+    by_cases hs : s'.finalChestOpened = true
+    · have hguard' : (step s' a).guardianAlive = s'.guardianAlive := by
+        by_cases ha : a = Action.attack
+        · subst ha
+          have hcond : ¬(s'.room = Room.south ∧ s'.guardianAlive = true ∧ s'.hasSword = true) := by
+            intro h; have := ih hs; rw [this] at h; simp at h
+          simp [step, hcond]
+        · exact only_attack_changes_guardianAlive a ha
+      rw [hguard']
+      exact ih hs
+    · have hf : s'.finalChestOpened = false := by
+        cases h : s'.finalChestOpened with
+        | true => exact absurd h hs
+        | false => rfl
+      have ha : a = Action.openFinalChest := only_openFinalChest_sets_finalChestOpened hf a hc
+      subst ha
+      by_cases hcond : s'.room = Room.center ∧ s'.finalChestVisible = true
+      · have hguardDead : s'.guardianAlive = false :=
+          finalChestVisible_implies_guardianDead hr hcond.2
+        have hguard' : (step s' Action.openFinalChest).guardianAlive = s'.guardianAlive :=
+          openFinalChest_preserves_guardianAlive
+        rw [hguard']; exact hguardDead
+      · have hstep : step s' Action.openFinalChest = s' := by simp [step, hcond]
+        rw [hstep, hf] at hc
+        simp at hc
+
 def witnessPlan : List Action :=
   [
     Action.goCenter,
