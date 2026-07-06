@@ -909,4 +909,130 @@ theorem task5_completable :
     ∃ plan, GoalReached (run initialState plan) := by
   exact ⟨witnessPlan, witnessPlan_reaches_goal⟩
 
+/-! ### Symbolic policy formalization -/
+
+/--
+The abstract stage machine behind the task 5 baseline. This is the symbolic
+counterpart of the Python `task5_stage` routine: it ignores pixel-level
+waypoints and keeps only the high-level subgoal ordering that matters for the
+environment proof.
+-/
+inductive PolicyStage where
+  | openStartChest
+  | pressStartButton
+  | openSouthChest
+  | openEastChest
+  | openWestChest
+  | done
+  deriving DecidableEq, Repr
+
+def policyStage (s : EnvState) : PolicyStage :=
+  if s.startChestOpened = false then
+    PolicyStage.openStartChest
+  else if s.buttonPressed = false then
+    PolicyStage.pressStartButton
+  else if s.southChestOpened = false then
+    PolicyStage.openSouthChest
+  else if s.eastChestOpened = false then
+    PolicyStage.openEastChest
+  else if s.westChestOpened = false then
+    PolicyStage.openWestChest
+  else
+    PolicyStage.done
+
+/--
+State-driven room-level policy. It maps the current symbolic state to the next
+high-level action, including navigation actions that return to the start room
+when the current stage needs a different room.
+-/
+def symbolicPolicy (s : EnvState) : Action :=
+  match policyStage s with
+  | PolicyStage.openStartChest =>
+      match s.room with
+      | Room.startRoom => Action.openChest
+      | Room.southRoom => Action.goNorth
+      | Room.eastRoom => Action.goWest
+      | Room.westRoom => Action.goEast
+  | PolicyStage.pressStartButton =>
+      match s.room with
+      | Room.startRoom => Action.pressButton
+      | Room.southRoom => Action.goNorth
+      | Room.eastRoom => Action.goWest
+      | Room.westRoom => Action.goEast
+  | PolicyStage.openSouthChest =>
+      match s.room with
+      | Room.startRoom =>
+          if s.buttonPressed = true then Action.goSouth else Action.pressButton
+      | Room.southRoom => Action.openChest
+      | Room.eastRoom => Action.goWest
+      | Room.westRoom => Action.goEast
+  | PolicyStage.openEastChest =>
+      match s.room with
+      | Room.startRoom =>
+          if s.keys > 0 then Action.goEast else Action.wait
+      | Room.southRoom => Action.goNorth
+      | Room.eastRoom => Action.openChest
+      | Room.westRoom => Action.goEast
+  | PolicyStage.openWestChest =>
+      match s.room with
+      | Room.startRoom => Action.goWest
+      | Room.southRoom => Action.goNorth
+      | Room.eastRoom => Action.goWest
+      | Room.westRoom => Action.openChest
+  | PolicyStage.done => Action.wait
+
+def policyStep (s : EnvState) : EnvState :=
+  step s (symbolicPolicy s)
+
+def runPolicy : Nat → EnvState → EnvState
+  | 0, s => s
+  | n + 1, s => runPolicy n (policyStep s)
+
+def policyTrace : Nat → EnvState → List Action
+  | 0, _ => []
+  | n + 1, s =>
+      let a := symbolicPolicy s
+      a :: policyTrace n (step s a)
+
+/-- Legal-action predicate for the symbolic transition layer. -/
+def ActionEnabled (s : EnvState) : Action → Prop
+  | Action.pressButton => s.room = Room.startRoom
+  | Action.goSouth => s.room = Room.startRoom ∧ s.buttonPressed = true
+  | Action.goNorth => s.room = Room.southRoom
+  | Action.goEast =>
+      (s.room = Room.startRoom ∧ s.keys > 0) ∨ s.room = Room.westRoom
+  | Action.goWest => s.room = Room.startRoom ∨ s.room = Room.eastRoom
+  | Action.openChest =>
+      (s.room = Room.startRoom ∧ s.startChestOpened = false) ∨
+      (s.room = Room.southRoom ∧ s.southChestOpened = false) ∨
+      (s.room = Room.eastRoom ∧ s.eastChestOpened = false) ∨
+      (s.room = Room.westRoom ∧ s.westChestOpened = false)
+  | Action.wait => True
+
+def actionsEnabledAlong : EnvState → List Action → Prop
+  | _, [] => True
+  | s, a :: rest => ActionEnabled s a ∧ actionsEnabledAlong (step s a) rest
+
+theorem policyTrace_10_matches_witnessPlan :
+    policyTrace 10 initialState = witnessPlan := by
+  native_decide
+
+theorem policyTrace_10_actions_enabled :
+    actionsEnabledAlong initialState (policyTrace 10 initialState) := by
+  simp [policyTrace, symbolicPolicy, policyStage, actionsEnabledAlong,
+    ActionEnabled, initialState, step]
+
+theorem symbolicPolicy_run_10_finalState :
+    runPolicy 10 initialState = finalState := by
+  native_decide
+
+theorem symbolicPolicy_reaches_goal :
+    GoalReached (runPolicy 10 initialState) := by
+  rw [symbolicPolicy_run_10_finalState]
+  simp [GoalReached, allChestsOpened, finalState]
+
+theorem task5_symbolicPolicy_completes :
+    ∃ n, GoalReached (runPolicy n initialState) := by
+  exact ⟨10, symbolicPolicy_reaches_goal⟩
+
 end Task5EnvironmentFormalization
