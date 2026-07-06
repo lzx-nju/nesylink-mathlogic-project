@@ -563,7 +563,8 @@ Task 5 包含 4 个房间（\texttt{startRoom / southRoom / eastRoom / westRoom}
 
 \begin{itemize}[leftmargin=2em]
   \item \texttt{pressButton}：仅在 \texttt{startRoom} 生效，\texttt{buttonPressed := true}；
-  \item \texttt{goSouth}：需 \texttt{room = startRoom ∧ buttonPressed = true}，进入 \texttt{southRoom}；
+  \item \texttt{goSouth}：需 \texttt{room = startRoom} \(\wedge\)
+  \texttt{buttonPressed = true}，进入 \texttt{southRoom}；
   \item \texttt{goNorth}：需 \texttt{room = southRoom}，返回 \texttt{startRoom}；
   \item \texttt{goEast}：从 \texttt{startRoom}（\texttt{keys > 0}）进入 \texttt{eastRoom} 并消耗钥匙；
         从 \texttt{westRoom} 返回 \texttt{startRoom}（不消耗钥匙）；
@@ -688,9 +689,11 @@ Task 5 包含 4 个房间（\texttt{startRoom / southRoom / eastRoom / westRoom}
 \subsection{实验设置}
 
 实验使用仓库自带评测脚本：
-\[
-\texttt{python utils/evaluate\_policy.py --policy student\_agent/baseline\_policy.py --num-envs 1}
-\]
+\begin{quote}
+\small
+\texttt{python utils/evaluate\_policy.py --policy}\\
+\texttt{student\_agent/baseline\_policy.py --num-envs 1}
+\end{quote}
 运行环境为 Python 3.12 虚拟环境 \texttt{.venv312}。本次报告记录的是
 2026 年 7 月 6 日在本地工作区重新运行的单 seed 回归结果。
 \begin{itemize}[leftmargin=2em]
