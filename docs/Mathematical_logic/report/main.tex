@@ -36,9 +36,9 @@
 \texttt{Reachable} 归纳不变式 $\rightarrow$ \texttt{completion\_postcondition} $\rightarrow$
 witness 计划 $\rightarrow$ 可完成性。其中 \texttt{task\_4} 因涉及旋转桥、条件门、
 装备获取与事件驱动显现机制，作为重点展开对象。
-此外，本文对 \texttt{task\_5} 进一步补充了高层符号策略形式化：
-定义 \texttt{PolicyStage}、\texttt{symbolicPolicy}、\texttt{ActionEnabled}
-和策略执行轨迹，并证明该策略从初态出发的 10 步执行轨迹动作合法且到达全宝箱开启目标。
+此外，本文对 \texttt{task\_1} 至 \texttt{task\_5} 进一步补充了高层符号策略形式化：
+定义 \texttt{PolicyStage}、\texttt{symbolicPolicy}、动作合法性检查
+和策略执行轨迹，并证明五个任务的阶段机策略从初态出发均能选择合法动作且到达对应目标。
 \end{abstract}
 
 \tableofcontents
@@ -648,10 +648,10 @@ Task 5 包含 4 个房间（\texttt{startRoom / southRoom / eastRoom / westRoom}
 将 Python \texttt{baseline\_policy.py} 中的规则逻辑提升为符号策略。
 每个 Task 的阶段机与策略步数汇总如下：
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\small
-\begin{tabular}{@{}llll@{}}
+\footnotesize
+\begin{tabular}{@{}ll>{\raggedright\arraybackslash}p{0.58\textwidth}r@{}}
 \toprule
 Task & 抽象层级 & \texttt{PolicyStage} 阶段 & 策略步数 \\
 \midrule
@@ -677,8 +677,10 @@ Task 5 & room & \texttt{openStartChest} $\to$ \texttt{pressStartButton} $\to$ \t
   \item \texttt{policyTrace}：从当前状态反复调用 \texttt{symbolicPolicy} 生成动作轨迹；
   \item \texttt{runPolicy}：直接执行策略得到后继状态；
   \item \texttt{actionEnabled}（\texttt{Bool} 版本）：刻画每个动作在当前状态下是否合法，
-  例如 Task 3 的 \texttt{openLockedExit} 需要 \texttt{room = startRoom ∧ keys > 0}，
-  Task 4 的 \texttt{goEast} 需要 \texttt{bridgeAllowsEast ∧ hasKey}，
+  例如 Task 3 的 \texttt{openLockedExit} 需要
+  \(\texttt{room = startRoom} \land \texttt{keys > 0}\)，
+  Task 4 的 \texttt{goEast} 需要
+  \(\texttt{bridgeAllowsEast} \land \texttt{hasKey}\)，
   Task 5 的 \texttt{goSouth} 需要 \texttt{buttonPressed = true}；
   \item \texttt{actionsEnabledAlong}：递归检查整条策略轨迹上每一步动作都满足对应前置条件。
 \end{itemize}
@@ -865,8 +867,12 @@ Task 5 & 像素识别 + reward 记忆 + 阶段机 & success = 1.000；steps = 11
   完成五任务单 seed 回归；逐文件检查 Lean 文件。
   \item \textbf{2026-07-06}：同步团队更新，补全 \texttt{task\_1} 至
   \texttt{task\_5} 的 Lean 环境形式化与可完成性证明；重新运行 Python evaluation
-  和全部 Lean 检查；进一步补充 \texttt{task\_5} 高层策略形式化与合法性/完成性证明；
+  和全部 Lean 检查；进一步补充 \texttt{task\_1} 至 \texttt{task\_5}
+  高层策略形式化与合法性/完成性证明；
   把最终实验结果与证明边界写入报告。
+  \item \textbf{2026-07-07}：同步团队提交，将 Lean 文件统一命名为
+  \texttt{TaskNFormalization.lean}，并复核报告中环境形式化、策略形式化和证明结果的一致性；
+  重新编译报告 PDF。
 \end{itemize}
 
 \section{总结与展望}
@@ -876,17 +882,16 @@ Task 5 & 像素识别 + reward 记忆 + 阶段机 & success = 1.000；steps = 11
 \texttt{task\_5} 的本地单 seed 评测中全部成功。
 第二，使用 Lean 对五个任务的环境语义进行了符号层形式化，
 覆盖状态、动作、转移、关键前置条件、不变式、完成后置条件和 witness 可完成性证明；
-并对 \texttt{task\_5} 的阶段机策略补充了动作合法性与目标完成性证明。
+并对 \texttt{task\_1} 至 \texttt{task\_5} 的阶段机策略补充了动作合法性与目标完成性证明。
 第三，将实验结果、实现路线和形式化边界整理进报告，明确区分了调试信息、
 提交版策略输入和 Lean 证明对象。
 
-当前工作的主要不足是：Lean 已证明 \texttt{task\_5} 的高层符号策略，
-但尚未逐行证明 Python 像素 waypoint 执行代码等价于该符号策略，
+当前工作的主要不足是：Lean 已证明五个任务的高层符号策略，
+但尚未逐行证明 Python 像素 waypoint 执行代码等价于这些符号策略，
 也没有证明视觉模块一定能在所有渲染扰动下稳定恢复符号状态；Python baseline 在
 \texttt{task\_1} 和 \texttt{task\_2} 上仍偏脚本化，泛化能力有限。
-如果时间更充足，可以进一步把 \texttt{task\_3} 和 \texttt{task\_4}
-也补成同等强度的高层策略形式化；也可以增加多 seed 回归、
-失败截图和更系统的视觉鲁棒性测试。
+如果时间更充足，可以进一步证明像素感知层到 Lean 符号状态之间的抽取正确性，
+也可以增加多 seed 回归、失败截图和更系统的视觉鲁棒性测试。
 
 \newpage
 \bibliographystyle{plain}
