@@ -39,6 +39,9 @@ witness 计划 $\rightarrow$ 可完成性。其中 \texttt{task\_4} 因涉及旋
 此外，本文对 \texttt{task\_1} 至 \texttt{task\_5} 进一步补充了高层符号策略形式化：
 定义 \texttt{PolicyStage}、\texttt{symbolicPolicy}、动作合法性检查
 和策略执行轨迹，并证明五个任务的阶段机策略从初态出发均能选择合法动作且到达对应目标。
+在此基础上，本文进一步抽取了独立的 \texttt{StrategyFramework.lean}，
+形式化通用策略执行、动作 mask 安全证书、有界可达性和 BFS 访问集，
+并证明“若某目标在 $n$ 步内由某个计划可达，则完整动作集上的深度 $n$ BFS 必会访问到目标态”。
 \end{abstract}
 
 \tableofcontents
@@ -245,6 +248,7 @@ Lean 部分首先完成五个任务的环境形式化与 witness 可完成性证
   适合作为稳定 baseline，但泛化能力弱于后续的像素阶段机。
   \item Lean 验证了五个任务的符号层环境、显式 witness 计划，
   以及全部五个任务的高层阶段机策略（\texttt{symbolicPolicy}）的合法性与完成性；
+  同时新增通用策略框架文件，证明有界 BFS 搜索的框架级完备性；
   尚未证明像素感知层一定能在所有渲染扰动下恢复这些符号状态。
 \end{itemize}
 
@@ -259,10 +263,12 @@ Lean 部分首先完成五个任务的环境形式化与 witness 可完成性证
   \item \texttt{Task2Formalization.lean}：zone 级战斗与条件门；
   \item \texttt{Task3Formalization.lean}：room 级三房间往返取钥匙；
   \item \texttt{Task4Formalization.lean}：room 级旋转桥与隐藏宝箱；
-  \item \texttt{Task5Formalization.lean}：room 级四房间按钮门与全宝箱收集。
+  \item \texttt{Task5Formalization.lean}：room 级四房间按钮门与全宝箱收集；
+  \item \texttt{StrategyFramework.lean}：通用策略执行、动作 mask 安全证书、
+  有界可达性与 BFS 完备性证明。
 \end{itemize}
 
-五个文件均通过 Lean LSP 诊断（零错误），并按照统一的设计原则建模：
+任务形式化文件均通过 Lean LSP 诊断（零错误），并按照统一的设计原则建模：
 \begin{enumerate}[leftmargin=2em]
   \item \textbf{抽象层级与 Python 行为对齐}：根据每个任务的关键机制选择
   tile / zone / room 抽象层级，并与
@@ -708,6 +714,51 @@ Task 5 & room & \texttt{openStartChest} $\to$ \texttt{pressStartButton} $\to$ \t
 这说明五个任务的 Lean 部分不再只证明“存在一条完成路径”，
 而是证明一个显式阶段机策略从初态出发会选择合法动作，并在有限步内完成目标。
 
+\subsection{统一策略框架与有界完备性证明}
+
+为了进一步覆盖评分细则中“采用统一策略覆盖多关卡、展现结构复用”和
+“证明基本要求之外、更具难度或价值的定理”的加分方向，
+本文新增 \path{student_agent/lean/StrategyFramework.lean}。
+该文件不依赖具体任务的房间、钥匙或怪物定义，而是对任意确定性符号转移系统
+“\texttt{State} 上的状态、\texttt{Action} 上的动作、
+以及 \texttt{step : State -> Action -> State}”
+抽取通用证明层：
+
+\begin{itemize}[leftmargin=2em]
+  \item \texttt{runPlan}：执行显式动作列表；
+  \item \texttt{policyTrace} 与 \texttt{runPolicy}：从状态驱动策略生成有限动作轨迹并执行；
+  \item \texttt{actionsEnabledAlong} 与 \texttt{SafeTrace}：把各任务的动作前置条件
+  抽象成 action mask 安全证书；
+  \item \texttt{BoundedReachable} 与 \texttt{BoundedGoalReachable}：
+  刻画“存在长度不超过 \(n\) 的计划可达某状态/目标”；
+  \item \texttt{expandFrontier}、\texttt{bfsVisited} 与 \texttt{bfsVisitedFrom}：
+  形式化深度受限 BFS 的逐层扩展和已访问状态集合。
+\end{itemize}
+
+核心完备性定理为 \path{bfsVisited_complete_for_bounded_goal}，其结论可写为：
+\begin{quote}
+\small
+\texttt{BoundedGoalReachable step goal init n}\\
+\(\Rightarrow\)\\
+\texttt{BfsFindsGoal goal}\\
+\texttt{(bfsVisitedFrom step actions init n)}
+\end{quote}
+定理前提还要求 \texttt{actions} 是完整动作集，即
+\(\forall a,\ \texttt{a} \in \texttt{actions}\)。
+证明思路是先证明 \path{bfsVisited_frontier_invariant}：
+任意长度不超过 \(n\) 的计划执行结果都属于深度 \(n\) 的 BFS 访问集；
+再由 \texttt{BoundedGoalReachable} 取出目标态，推出 BFS 访问集中存在目标态。
+这正对应“若存在可行路径，则完整的有界符号搜索必能找到”的完备性命题。
+
+此外，\path{policy_completion_is_bounded_goal} 证明任意完成目标的
+状态驱动策略都可以转化为 \texttt{BoundedGoalReachable} 见证；
+\path{bfs_finds_goal_reached_by_policy} 进一步说明：
+如果某个 \texttt{symbolicPolicy} 在 \(n\) 步内完成目标，那么同一符号层上的
+完整动作 BFS 也能在 \(n\) 步内访问到目标态。
+因此，五个 Task 文件中已经证明的 \texttt{symbolicPolicy} 完成性
+可以看作这一统一框架的具体实例，而 \texttt{StrategyFramework.lean}
+则提供跨任务复用的搜索完备性证明骨架。
+
 \subsection{证明统一思路}
 
 五个任务遵循同一套证明骨架，便于复用与审阅：
@@ -753,8 +804,10 @@ Task 5 & room & \texttt{openStartChest} $\to$ \texttt{pressStartButton} $\to$ \t
   \item 未形式化怪物 AI、击退、受伤时序和 shield 格挡的连续动力学。
   \item 未证明视觉模块一定能从 \texttt{obs} 中稳定恢复这些符号状态；
   该部分属于感知层，而不是当前 Lean 环境模型的覆盖范围。
-  \item 当前证明的是显式策略的可执行性、动作合法性和若干局部环境性质，
-  还没有证明“任意合法 planner 都能找到该计划”这类更强的完备性命题。
+  \item 已证明抽象层面的有界 BFS 完备性：
+  若某目标在 \(n\) 步内由某个计划可达，则完整动作集上的深度 \(n\) BFS
+  必会访问到目标态；但尚未逐行证明 Python 具体队列、visited 集合和 parent map
+  实现与该 Lean 抽象 BFS 完全等价。
 \end{itemize}
 
 这一边界是有意为之：课程要求强调 Lean 证明应覆盖“可验证层”。
@@ -780,7 +833,7 @@ Task 5 & room & \texttt{openStartChest} $\to$ \texttt{pressStartButton} $\to$ \t
   \item 成功率统计方式：评测脚本输出的 \texttt{success\_rate}。
   \item 策略版本：\texttt{student\_agent/baseline\_policy.py}。
   \item Lean 检查：逐文件运行 \texttt{lean student\_agent/lean/*.lean}
-  对 6 个 Lean 文件进行编译检查。
+  对 7 个 Lean 文件进行编译检查。
 \end{itemize}
 
 \subsection{实验结果}
@@ -813,6 +866,7 @@ Task 5 & 像素识别 + reward 记忆 + 阶段机 & success = 1.000；steps = 11
 \path{Task3Formalization.lean} & 通过 & Task 3 环境形式化与符号策略证明 \\
 \path{Task4Formalization.lean} & 通过 & Task 4 环境形式化与符号策略证明 \\
 \path{Task5Formalization.lean} & 通过 & Task 5 环境形式化与符号策略证明 \\
+\path{StrategyFramework.lean} & 通过 & 通用策略执行与有界 BFS 完备性证明 \\
 \bottomrule
 \end{tabular}
 \caption{Lean 文件逐文件检查结果}
@@ -829,8 +883,8 @@ Task 5 & 像素识别 + reward 记忆 + 阶段机 & success = 1.000；steps = 11
   \item 主要风险来自视觉定位与碰撞箱偏差，而不是高层目标链错误。
   \item reward signals 对跨房间记忆非常有帮助，尤其是按钮、开门、击杀和开箱事件。
   \item Lean 证明与实验互补：实验说明 Python baseline 可运行，
-  Lean 证明说明抽象后的环境语义、witness 计划以及 \texttt{task\_5}
-  高层阶段机策略在逻辑上自洽。
+  Lean 证明说明抽象后的环境语义、witness 计划、五个任务的高层阶段机策略
+  以及通用有界 BFS 搜索框架在逻辑上自洽。
 \end{itemize}
 
 \section{项目分工与推进过程}
@@ -872,7 +926,8 @@ Task 5 & 像素识别 + reward 记忆 + 阶段机 & success = 1.000；steps = 11
   把最终实验结果与证明边界写入报告。
   \item \textbf{2026-07-07}：同步团队提交，将 Lean 文件统一命名为
   \texttt{TaskNFormalization.lean}，并复核报告中环境形式化、策略形式化和证明结果的一致性；
-  重新编译报告 PDF。
+  新增通用策略框架文件，抽取通用策略执行、动作 mask 安全证书和
+  有界 BFS 完备性证明；重新编译报告 PDF。
 \end{itemize}
 
 \section{总结与展望}
@@ -883,15 +938,19 @@ Task 5 & 像素识别 + reward 记忆 + 阶段机 & success = 1.000；steps = 11
 第二，使用 Lean 对五个任务的环境语义进行了符号层形式化，
 覆盖状态、动作、转移、关键前置条件、不变式、完成后置条件和 witness 可完成性证明；
 并对 \texttt{task\_1} 至 \texttt{task\_5} 的阶段机策略补充了动作合法性与目标完成性证明。
-第三，将实验结果、实现路线和形式化边界整理进报告，明确区分了调试信息、
+第三，抽取了独立的 \texttt{StrategyFramework.lean}，证明通用策略执行框架、
+action mask 安全证书和有界 BFS 搜索完备性。
+第四，将实验结果、实现路线和形式化边界整理进报告，明确区分了调试信息、
 提交版策略输入和 Lean 证明对象。
 
 当前工作的主要不足是：Lean 已证明五个任务的高层符号策略，
 但尚未逐行证明 Python 像素 waypoint 执行代码等价于这些符号策略，
-也没有证明视觉模块一定能在所有渲染扰动下稳定恢复符号状态；Python baseline 在
+也尚未证明 Python 具体 BFS/队列实现等价于 Lean 中的抽象有界 BFS，
+更没有证明视觉模块一定能在所有渲染扰动下稳定恢复符号状态；Python baseline 在
 \texttt{task\_1} 和 \texttt{task\_2} 上仍偏脚本化，泛化能力有限。
 如果时间更充足，可以进一步证明像素感知层到 Lean 符号状态之间的抽取正确性，
-也可以增加多 seed 回归、失败截图和更系统的视觉鲁棒性测试。
+证明具体搜索程序与抽象 BFS 定理之间的细化关系，也可以增加多 seed 回归、
+失败截图和更系统的视觉鲁棒性测试。
 
 \newpage
 \bibliographystyle{plain}
