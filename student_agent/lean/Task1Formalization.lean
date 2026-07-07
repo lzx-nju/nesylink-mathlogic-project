@@ -26,7 +26,7 @@
     (distance 0).
 -/
 
-namespace Task1EnvironmentFormalization
+namespace Task1Formalization
 
 /-! ### Tile-level room grid -/
 
@@ -433,4 +433,4 @@ theorem task1_symbolicPolicy_completes :
     ∃ n, GoalReached (runPolicy n initialState) := by
   exact ⟨22, symbolicPolicy_reaches_goal⟩
 
-end Task1EnvironmentFormalization
+end Task1Formalization

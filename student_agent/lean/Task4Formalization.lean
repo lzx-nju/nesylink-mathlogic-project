@@ -24,7 +24,7 @@
   * `nesylink/map_data/mathematical_logic/task_4/*.json`
 -/
 
-namespace Task4EnvironmentFormalization
+namespace Task4Formalization
 
 inductive Room where
   | west
@@ -946,4 +946,4 @@ theorem task4_symbolicPolicy_completes :
     ∃ n, GoalReached (runPolicy n initialState) := by
   exact ⟨17, symbolicPolicy_reaches_goal⟩
 
-end Task4EnvironmentFormalization
+end Task4Formalization

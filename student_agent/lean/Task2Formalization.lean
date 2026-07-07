@@ -18,7 +18,7 @@
   * `nesylink/core/mechanics/combat.py`
 -/
 
-namespace Task2EnvironmentFormalization
+namespace Task2Formalization
 
 /-! ### Zones and actions -/
 
@@ -703,4 +703,4 @@ theorem task2_symbolicPolicy_completes :
     ∃ n, GoalReached (runPolicy n initialState) := by
   exact ⟨7, symbolicPolicy_reaches_goal⟩
 
-end Task2EnvironmentFormalization
+end Task2Formalization

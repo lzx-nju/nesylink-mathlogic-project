@@ -20,7 +20,7 @@
   * `nesylink/core/mechanics/movement.py`
 -/
 
-namespace Task3EnvironmentFormalization
+namespace Task3Formalization
 
 inductive Room where
   | startRoom
@@ -399,4 +399,4 @@ theorem task3_symbolicPolicy_completes :
     ∃ n, GoalReached (runPolicy n initialState) := by
   exact ⟨6, symbolicPolicy_reaches_goal⟩
 
-end Task3EnvironmentFormalization
+end Task3Formalization

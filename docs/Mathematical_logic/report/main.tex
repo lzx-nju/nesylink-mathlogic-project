@@ -255,11 +255,11 @@ Lean 部分首先完成五个任务的环境形式化与 witness 可完成性证
 本项目对 \texttt{task\_1} 至 \texttt{task\_5} 全部完成了 Lean 环境形式化与可完成性证明，
 对应文件位于 \texttt{student\_agent/lean/} 目录下：
 \begin{itemize}[leftmargin=2em]
-  \item \texttt{Task1EnvironmentFormalization.lean}：tile 级单房间钥匙门；
-  \item \texttt{Task2EnvironmentFormalization.lean}：zone 级战斗与条件门；
-  \item \texttt{Task3EnvironmentFormalization.lean}：room 级三房间往返取钥匙；
-  \item \texttt{Task4EnvironmentFormalization.lean}：room 级旋转桥与隐藏宝箱；
-  \item \texttt{Task5EnvironmentFormalization.lean}：room 级四房间按钮门与全宝箱收集。
+  \item \texttt{Task1Formalization.lean}：tile 级单房间钥匙门；
+  \item \texttt{Task2Formalization.lean}：zone 级战斗与条件门；
+  \item \texttt{Task3Formalization.lean}：room 级三房间往返取钥匙；
+  \item \texttt{Task4Formalization.lean}：room 级旋转桥与隐藏宝箱；
+  \item \texttt{Task5Formalization.lean}：room 级四房间按钮门与全宝箱收集。
 \end{itemize}
 
 五个文件均通过 Lean LSP 诊断（零错误），并按照统一的设计原则建模：
@@ -472,7 +472,7 @@ Task 3 无攻击动作，\texttt{hallMonsterAlive} 恒不变。 \\
 
 \texttt{task\_4} 引入旋转桥、条件门、装备获取与事件驱动显现机制，是机制最复杂的一关，
 也是本报告的重点展开对象。对应 Lean 文件为
-\path{Task4EnvironmentFormalization.lean}，
+\path{Task4Formalization.lean}，
 与 Python 环境中以下模块对齐：
 \texttt{movement.py}（门与房间切换）、
 \texttt{interactions.py}（开关与宝箱）、
@@ -806,11 +806,11 @@ Task 5 & 像素识别 + reward 记忆 + 阶段机 & success = 1.000；steps = 11
 检查对象 & 结果 & 说明 \\
 \midrule
 \path{KillMonsterFormalization.lean} & 通过 & 怪物击杀示例证明 \\
-\path{Task1EnvironmentFormalization.lean} & 通过 & Task 1 环境形式化与符号策略证明 \\
-\path{Task2EnvironmentFormalization.lean} & 通过 & Task 2 环境形式化与符号策略证明 \\
-\path{Task3EnvironmentFormalization.lean} & 通过 & Task 3 环境形式化与符号策略证明 \\
-\path{Task4EnvironmentFormalization.lean} & 通过 & Task 4 环境形式化与符号策略证明 \\
-\path{Task5EnvironmentFormalization.lean} & 通过 & Task 5 环境形式化与符号策略证明 \\
+\path{Task1Formalization.lean} & 通过 & Task 1 环境形式化与符号策略证明 \\
+\path{Task2Formalization.lean} & 通过 & Task 2 环境形式化与符号策略证明 \\
+\path{Task3Formalization.lean} & 通过 & Task 3 环境形式化与符号策略证明 \\
+\path{Task4Formalization.lean} & 通过 & Task 4 环境形式化与符号策略证明 \\
+\path{Task5Formalization.lean} & 通过 & Task 5 环境形式化与符号策略证明 \\
 \bottomrule
 \end{tabular}
 \caption{Lean 文件逐文件检查结果}

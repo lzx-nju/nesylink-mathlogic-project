@@ -27,7 +27,7 @@
   * `nesylink/core/mechanics/engine.py`
 -/
 
-namespace Task5EnvironmentFormalization
+namespace Task5Formalization
 
 /-! ### Rooms, actions, state -/
 
@@ -1035,4 +1035,4 @@ theorem task5_symbolicPolicy_completes :
     ∃ n, GoalReached (runPolicy n initialState) := by
   exact ⟨10, symbolicPolicy_reaches_goal⟩
 
-end Task5EnvironmentFormalization
+end Task5Formalization
