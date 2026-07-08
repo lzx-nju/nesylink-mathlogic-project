@@ -822,36 +822,36 @@ Task 5 & room & \texttt{openStartChest} $\to$ \texttt{pressStartButton} $\to$ \t
 \begin{quote}
 \small
 \texttt{python utils/evaluate\_policy.py --policy}\\
-\texttt{student\_agent/baseline\_policy.py --num-envs 1}
+\texttt{student\_agent/baseline\_policy.py --num-envs 10}
 \end{quote}
-运行环境为 Python 3.12 虚拟环境 \texttt{.venv312}。本次报告记录的是
-2026 年 7 月 6 日在本地工作区重新运行的单 seed 回归结果。
+运行环境为 Python 3.13 虚拟环境。本次报告记录的是
+2026 年 7 月 8 日在本地工作区运行的 10 seed 回归结果。
 \begin{itemize}[leftmargin=2em]
   \item 测试任务：\texttt{mathematical\_logic/task\_1} 至
   \texttt{mathematical\_logic/task\_5}。
-  \item 运行次数：每个任务 1 个 episode，seed = 0。
+  \item 运行次数：每个任务 10 个 episode，seed = 0--9。
   \item 成功率统计方式：评测脚本输出的 \texttt{success\_rate}。
   \item 策略版本：\texttt{student\_agent/baseline\_policy.py}。
   \item Lean 检查：逐文件运行 \texttt{lean student\_agent/lean/*.lean}
-  对 7 个 Lean 文件进行编译检查。
+  对 7 个 Lean 文件进行编译检查，toolchain 版本为 \texttt{leanprover/lean4:v4.26.0}。
 \end{itemize}
 
 \subsection{实验结果}
 
 \begin{table}[H]
 \centering
-\begin{tabular}{p{0.15\textwidth}p{0.32\textwidth}p{0.25\textwidth}p{0.18\textwidth}}
+\begin{tabular}{p{0.10\textwidth}p{0.28\textwidth}p{0.10\textwidth}p{0.12\textwidth}p{0.12\textwidth}p{0.16\textwidth}}
 \toprule
-任务 & 方法版本 & 结果指标 & 备注 \\
+任务 & 方法版本 & seeds & success\_rate & avg\_steps & avg\_reward \\
 \midrule
-Task 1 & 固定动作 baseline & success = 1.000；steps = 290；reward = 127.050 & 单房间钥匙门 \\
-Task 2 & 参考轨迹脚本 baseline & success = 1.000；steps = 182；reward = 126.180 & 战斗与开箱 \\
-Task 3 & 像素房间识别 + 规则状态机 & success = 1.000；steps = 525；reward = 159.750 & 跨房间取钥匙 \\
-Task 4 & 像素桥识别 + 显式阶段机 & success = 1.000；steps = 1089；reward = 249.110 & 桥、剑、守卫、最终宝箱 \\
-Task 5 & 像素识别 + reward 记忆 + 阶段机 & success = 1.000；steps = 1112；reward = 155.730 & 四房间全宝箱 \\
+Task 1 & 固定动作 baseline & 10 & 1.000 & 290.0 & 127.050 \\
+Task 2 & 参考轨迹脚本 baseline & 10 & 1.000 & 182.0 & 126.180 \\
+Task 3 & 像素房间识别 + 规则状态机 & 10 & 1.000 & 525.0 & 159.750 \\
+Task 4 & 像素桥识别 + 显式阶段机 & 10 & 1.000 & 1089.0 & 249.110 \\
+Task 5 & 像素识别 + reward 记忆 + 阶段机 & 10 & 1.000 & 1112.0 & 155.730 \\
 \bottomrule
 \end{tabular}
-\caption{各任务实验结果汇总}
+\caption{各任务实验结果汇总（10 seed，seed = 0--9）}
 \end{table}
 
 \begin{table}[H]
@@ -874,12 +874,16 @@ Task 5 & 像素识别 + reward 记忆 + 阶段机 & success = 1.000；steps = 11
 
 \subsection{结果分析}
 
-从本次单 seed 回归看，五个任务均能由当前 baseline 完成。
+从本次 10 seed 回归看，五个任务均能由当前 baseline 稳定完成，
+所有 seed 的成功率均为 1.000。
 \texttt{task\_1} 和 \texttt{task\_2} 的完成步数较少，主要因为采用了固定动作序列；
 \texttt{task\_3} 至 \texttt{task\_5} 的步数更高，是因为策略在出口和交互点附近加入了
 保守对齐动作，以换取更稳定的像素控制。
+值得注意的是，由于当前 baseline 是基于规则的状态机策略（无随机成分），
+各 seed 之间的步数和奖励完全一致，方差为零。
 \begin{itemize}[leftmargin=2em]
-  \item 当前成功率最高的结论只限于本地单 seed 回归，不能直接推出多 seed 或地图扰动下的泛化性能。
+  \item 10 seed 回归全部成功，但测试环境若涉及布局或渲染细节扰动，
+  仍可能因像素识别偏差导致失败，当前结果不能直接推出地图扰动下的泛化性能。
   \item 主要风险来自视觉定位与碰撞箱偏差，而不是高层目标链错误。
   \item reward signals 对跨房间记忆非常有帮助，尤其是按钮、开门、击杀和开箱事件。
   \item Lean 证明与实验互补：实验说明 Python baseline 可运行，
@@ -927,13 +931,17 @@ Task 5 & 像素识别 + reward 记忆 + 阶段机 & success = 1.000；steps = 11
   \texttt{TaskNFormalization.lean}，并复核报告中环境形式化、策略形式化和证明结果的一致性；
   新增通用策略框架文件，抽取通用策略执行、动作 mask 安全证书和
   有界 BFS 完备性证明；重新编译报告 PDF。
+  \item \textbf{2026-07-08}：补充 \texttt{lean-toolchain} 文件（\texttt{leanprover/lean4:v4.26.0}），
+  确保评测方可在一致的工具链下复现 Lean 编译；
+  运行 10 seed 评测（seed = 0--9），五个任务全部成功；
+  据此更新报告实验设置、结果表格和分析部分，并重新编译 PDF。
 \end{itemize}
 
 \section{总结与展望}
 
 本文完成了 NesyLink 数理逻辑课程项目的三条主线工作。
 第一，构建了统一的 Python baseline，并在 \texttt{task\_1} 至
-\texttt{task\_5} 的本地单 seed 评测中全部成功。
+\texttt{task\_5} 的本地 10 seed 评测中全部成功（success\_rate = 1.000）。
 第二，使用 Lean 对五个任务的环境语义进行了符号层形式化，
 覆盖状态、动作、转移、关键前置条件、不变式、完成后置条件和 witness 可完成性证明；
 并对 \texttt{task\_1} 至 \texttt{task\_5} 的阶段机策略补充了动作合法性与目标完成性证明。
@@ -948,8 +956,8 @@ action mask 安全证书和有界 BFS 搜索完备性。
 更没有证明视觉模块一定能在所有渲染扰动下稳定恢复符号状态；Python baseline 在
 \texttt{task\_1} 和 \texttt{task\_2} 上仍偏脚本化，泛化能力有限。
 如果时间更充足，可以进一步证明像素感知层到 Lean 符号状态之间的抽取正确性，
-证明具体搜索程序与抽象 BFS 定理之间的细化关系，也可以增加多 seed 回归、
-失败截图和更系统的视觉鲁棒性测试。
+证明具体搜索程序与抽象 BFS 定理之间的细化关系，也可以补充
+失败截图、地图扰动测试和更系统的视觉鲁棒性测试。
 
 \newpage
 \bibliographystyle{plain}
