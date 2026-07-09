@@ -190,6 +190,33 @@ class Policy:
         center_y = int(ys.mean())
         return (min(max_x, center_x // TILE_SIZE), min(max_y, center_y // TILE_SIZE))
 
+    def detect_all_monster_tiles(self, frame: np.ndarray) -> list[Tile]:
+        # Detect all distinct monster tiles by clustering pixels.
+        if not self.has_monster(frame):
+            return []
+        tiles: set[Tile] = set()
+        for color in MONSTER_COLORS:
+            mask = np.all(frame == color, axis=2)
+            ys, xs = np.nonzero(mask)
+            for x, y in zip(xs, ys):
+                tile = (min(GRID_WIDTH - 1, x // TILE_SIZE), min(GRID_HEIGHT - 1, y // TILE_SIZE))
+                tiles.add(tile)
+        return list(tiles)
+
+    def detect_closest_monster_tile(self, frame: np.ndarray, agent_tile: Tile) -> Tile | None:
+        monsters = self.detect_all_monster_tiles(frame)
+        if not monsters:
+            return None
+        ax, ay = agent_tile
+        best = None
+        best_dist = 999
+        for mx, my in monsters:
+            dist = abs(mx - ax) + abs(my - ay)
+            if dist < best_dist:
+                best = (mx, my)
+                best_dist = dist
+        return best
+
     def facing_toward(self, dx: int, dy: int) -> str:
         if dx > 0:
             return "right"
@@ -201,7 +228,10 @@ class Policy:
             return "up"
         return self.history.facing
 
-    def attack_monster(self, tile: Tile, monster_tile: Tile) -> int:
+    def attack_monster(self, tile: Tile, monster_tile: Tile, blocked: set[Tile] | None = None, player_px: tuple[float, float] | None = None) -> int:
+        # Attack a monster at monster_tile. When adjacent (distance=1), face the
+        # monster and press A. When farther away, BFS to the closest adjacent
+        # tile using the provided blocked set (if available) or an empty set.
         px, py = tile
         mx, my = monster_tile
         dx = mx - px
@@ -224,9 +254,7 @@ class Policy:
                 return ACTION_UP
             return ACTION_DOWN
 
-        # manhattan >= 2: head to the closest valid adjacent tile. The x_first
-        # flag is chosen so the off-axis is corrected first, leaving the final
-        # straight approach toward the monster to set the attack facing.
+        # manhattan >= 2: BFS to the closest valid adjacent tile.
         candidates = (
             ((mx - 1, my), False),
             ((mx + 1, my), False),
@@ -242,6 +270,12 @@ class Policy:
             return abs(ax - px) + abs(ay - py)
 
         target, x_first = min(valid, key=dist_to)
+        # Use BFS with pixel alignment if blocked set is provided.
+        if blocked is not None and player_px is not None:
+            return self.follow_bfs_aligned(player_px, tile, {target}, blocked, final_action=ACTION_A)
+        if blocked is not None:
+            return self.follow_bfs(tile, {target}, blocked, x_first=x_first, final_action=ACTION_A)
+        # Fallback to simple move_towards when no blocked set is provided.
         return self.move_towards(tile, target, x_first=x_first)
 
     def count_color(self, frame: np.ndarray, color: Color, tile: Tile | None = None) -> int:
@@ -403,12 +437,21 @@ class Policy:
         return None
 
     def detect_task5_room(self, frame: np.ndarray) -> str | None:
-        if self.tile_has_chest(frame, (8, 5)):
+        # South room has a distinctive wall pattern at y=2 (x=2-7) and y=6 (x=4).
+        # Detect this pattern first as it's more reliable than chest pixels on
+        # entry. The key chest is at (8,5) which may not render immediately.
+        south_walls = [(2, 2), (3, 2), (4, 2), (5, 2), (6, 2), (7, 2), (4, 6)]
+        if all(self.tile_has_wall(frame, t) for t in south_walls):
             return "task5_south"
-        if self.tile_has_chest(frame, (7, 1)):
+        # East room has walls at (5,1), (6,1), (5,2), (6,2).
+        east_walls = [(5, 1), (6, 1), (5, 2), (6, 2)]
+        if all(self.tile_has_wall(frame, t) for t in east_walls):
             return "task5_east"
-        if self.tile_has_chest(frame, (2, 6)):
+        # West room has walls at (6,1), (5,2), (5,3), (3,5), (4,5).
+        west_walls = [(6, 1), (5, 2), (5, 3), (3, 5), (4, 5)]
+        if all(self.tile_has_wall(frame, t) for t in west_walls):
             return "task5_west"
+        # Start room fallback: chest at (4,2) or button at (2,6).
         if self.tile_has_chest(frame, (4, 2)) or self.tile_has_button(frame, (2, 6)):
             return "task5_start"
         return None
@@ -425,6 +468,9 @@ class Policy:
                 bridge_state = self.detect_bridge_state(frame)
         elif task_id == "mathematical_logic/task_5":
             room_id = self.detect_task5_room(frame)
+            # Fallback: if detection failed, use the last known room from history.
+            if room_id is None:
+                room_id = self.history.notes.get("task5_last_room")
         return PixelState(
             player_tile=player_tile,
             room_id=room_id,
@@ -736,14 +782,9 @@ class Policy:
         *,
         x_first: bool = True,
     ) -> int:
-        # Perception-driven move with a pixel-alignment guard. Waypoint
-        # advancement is tile-based (tolerant of sub-pixel drift), but once the
-        # primary axis matches, the sprite is pixel-aligned to its current
-        # column/row before moving on the secondary axis so it clears 1-tile
-        # gaps/walls instead of straddling them. Asymmetric tolerance: strict
-        # (tol=0) when the sprite is on the boundary-crossing side (would
-        # collide with blocked tiles on the adjacent row/column), lenient
-        # (tol=2) on the safe side to absorb +-1px detection error.
+        # Perception-driven move with a pixel-alignment guard. When the
+        # primary axis matches the target, align pixels before moving on the
+        # secondary axis to avoid straddling tile boundaries.
         px, py = player_px
         x, y = tile
         target_x, target_y = target
@@ -755,7 +796,7 @@ class Policy:
             col_left = x * TILE_SIZE
             if px < col_left:
                 return ACTION_RIGHT
-            if px > col_left:
+            if px > col_left + 1:
                 return ACTION_LEFT
             if y < target_y:
                 return ACTION_DOWN
@@ -769,7 +810,7 @@ class Policy:
             row_top = y * TILE_SIZE
             if py < row_top:
                 return ACTION_DOWN
-            if py > row_top:
+            if py > row_top + 1:
                 return ACTION_UP
             if x < target_x:
                 return ACTION_RIGHT
@@ -1042,13 +1083,21 @@ class Policy:
 
         if room_id == "task5_south":
             if stage == "open_south_chest":
+                # South room's patroller is passive; ignore it and navigate to chest directly.
                 chest = self.detect_chest_tile(frame)
-                if chest is not None:
-                    return self.navigate_to_goal(tile, chest, blocked, player_px=player_px, final_action=ACTION_A)
+                # Fallback: if chest detection failed, use the known chest position (8,5).
+                if chest is None:
+                    chest = (8, 5)
+                return self.navigate_to_goal(tile, chest, blocked, player_px=player_px, final_action=ACTION_A)
             return self.navigate_to_exit(tile, "north", blocked, player_px=player_px)
 
         if room_id == "task5_east":
             if stage == "open_east_chest":
+                if not bool(self.history.notes.get("task5_east_monster_cleared", False)):
+                    monster_tile = self.detect_monster_tile(frame)
+                    if monster_tile is not None:
+                        return self.attack_monster(tile, monster_tile)
+                    self.history.notes["task5_east_monster_cleared"] = True
                 chest = self.detect_chest_tile(frame)
                 if chest is not None:
                     return self.navigate_to_goal(tile, chest, blocked, player_px=player_px, final_action=ACTION_A)
@@ -1056,6 +1105,11 @@ class Policy:
 
         if room_id == "task5_west":
             if stage == "open_west_chest":
+                if not bool(self.history.notes.get("task5_west_monster_cleared", False)):
+                    monster_tile = self.detect_monster_tile(frame)
+                    if monster_tile is not None:
+                        return self.attack_monster(tile, monster_tile)
+                    self.history.notes["task5_west_monster_cleared"] = True
                 chest = self.detect_chest_tile(frame)
                 if chest is not None:
                     return self.navigate_to_goal(tile, chest, blocked, player_px=player_px, final_action=ACTION_A)
