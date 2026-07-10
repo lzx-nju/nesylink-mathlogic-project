@@ -5,7 +5,7 @@
   Important alignment with Python policy:
 
   * `decide_task1` does NOT follow a fixed action list.
-  * It reads `keys = current_keys(reward_signals, inventory)`.
+  * It reads `keys = current_keys(inventory)`.
   * If `keys <= 0`, it detects the visible chest, builds `blocked` from the
     current frame, sets goals to the walkable neighbors of that chest, and calls
     `follow_bfs_aligned(..., final_action = ACTION_A)`.
