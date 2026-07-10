@@ -24,6 +24,17 @@ self_use/
 
 CLAUDE.md
 .claude/
+.trae/
+
+# 临时调试脚本与备份
+_debug_*.py
+_old_*.txt
+
+# 临时评测结果（保留正式的 eval_results.json）
+docs/Mathematical_logic/report/eval_*_quick.json
+docs/Mathematical_logic/report/eval_safe_*.json
+docs/Mathematical_logic/report/eval_t*_pure.json
+docs/Mathematical_logic/report/eval_task5_fix.json
 
 # LaTeX temporary files
 *.aux

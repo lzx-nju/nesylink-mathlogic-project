@@ -91,9 +91,10 @@ class Policy:
     def __init__(self) -> None:
         self.history = AgentHistory()
 
-    def reset(self, seed: int | None = None, task_id: str | None = None) -> None:
-        del seed
-        self.history = AgentHistory(task_id=task_id)
+    def reset(self) -> None:
+        # 新版评测脚本无参数调用 reset()。task_id 改由 info["task_id"] 在
+        # act() 中获取（仅 --task-policy 模式提供）。
+        self.history = AgentHistory()
 
     def extract_inventory(self, info: dict[str, Any]) -> dict[str, Any]:
         inventory = info.get("inventory", {})
@@ -101,63 +102,43 @@ class Policy:
             return dict(inventory)
         return {}
 
-    def reward_signals(self, info: dict[str, Any]) -> dict[str, Any]:
-        reward_info = info.get("reward", {})
-        if not isinstance(reward_info, dict):
-            return {}
-        signals = reward_info.get("reward_signals", {})
-        if isinstance(signals, dict):
-            return signals
-        return {}
+    def extract_last_reward(self, info: dict[str, Any]) -> float:
+        # safe 模式下 info["last_reward"] 为上一步标量奖励，reset 后首次为 0.0。
+        return float(info.get("last_reward", 0.0) or 0.0)
 
-    def signal_positive(self, reward_signals: dict[str, Any], key: str) -> bool:
-        return float(reward_signals.get(key, 0.0) or 0.0) > 0
-
-    def update_memory(self, reward_signals: dict[str, Any]) -> None:
-        # Single info touchpoint for state tracking: milestone flags and
-        # cumulative counts are derived from reward signals so the decision
-        # layer keys off self-tracked memory instead of re-reading info state
-        # every step. The pixel HUD is cropped, so key/chest/monster/exit
-        # transitions are only observable through these signals. Task-specific
-        # memory (e.g. task5 room chests) is layered on top by each task.
+    def update_memory_from_safe(
+        self,
+        inventory: dict[str, Any],
+        last_reward: float,
+        frame: np.ndarray,
+    ) -> None:
+        # safe 模式下没有 reward_signals，改为基于 inventory diff + last_reward
+        # 推断事件。图像感知由各 task 的 decide 函数自行处理。
         notes = self.history.notes
-        if self.signal_positive(reward_signals, "key_collected"):
+        prev = self.history.last_inventory or {}
+        if int(inventory.get("keys", 0)) > int(prev.get("keys", 0) or 0):
             notes["mem_keys_collected"] = int(notes.get("mem_keys_collected", 0) or 0) + 1
             notes["mem_key_collected"] = True
-        if self.signal_positive(reward_signals, "chest_opened"):
-            notes["mem_chests_opened"] = int(notes.get("mem_chests_opened", 0) or 0) + 1
-            notes["mem_chest_opened"] = True
-        if self.signal_positive(reward_signals, "monster_kill"):
-            notes["mem_monsters_killed"] = int(notes.get("mem_monsters_killed", 0) or 0) + 1
-            notes["mem_monster_killed"] = True
-        if self.signal_positive(reward_signals, "monster_hit"):
-            notes["mem_monster_hits"] = int(notes.get("mem_monster_hits", 0) or 0) + 1
-        if self.signal_positive(reward_signals, "door_opened"):
-            notes["mem_doors_opened"] = int(notes.get("mem_doors_opened", 0) or 0) + 1
-            notes["mem_door_opened"] = True
-        if self.signal_positive(reward_signals, "exit_reached"):
-            notes["mem_exits_reached"] = int(notes.get("mem_exits_reached", 0) or 0) + 1
-        if self.signal_positive(reward_signals, "button_pressed"):
-            notes["mem_button_pressed"] = True
-        if self.signal_positive(reward_signals, "room_changed"):
-            notes["mem_room_changed"] = True
-        notes["mem_last_reward_signals"] = dict(reward_signals)
+        if int(inventory.get("gold", 0)) > int(prev.get("gold", 0) or 0):
+            notes["mem_gold_collected"] = True
+        prev_items = set(prev.get("items", []) or [])
+        curr_items = set(inventory.get("items", []) or [])
+        if curr_items - prev_items:
+            notes["mem_item_collected"] = True
+        notes["mem_last_reward"] = last_reward
+        notes["mem_reward_positive"] = last_reward > 0
 
-    def current_keys(self, reward_signals: dict[str, Any], inventory: dict[str, Any]) -> int:
-        # Prefer the key count carried by reward signals (already extracted in
-        # act()) over re-reading info inventory, so the decision layer is
-        # reward-driven. Falls back to inventory when signals are absent.
-        keys = reward_signals.get("keys")
-        if keys is None:
-            return int(inventory.get("keys", 0))
-        return int(keys)
+    def current_keys(self, inventory: dict[str, Any]) -> int:
+        # safe 模式下 reward_signals 不可用，直接用 inventory.keys。
+        return int(inventory.get("keys", 0))
 
     def infer_task_id(self, info: dict[str, Any]) -> str | None:
-        del info
-        task_id = self.history.task_id
+        # safe 模式下 task_id 通过 info["task_id"] 传入（--task-policy 模式）。
+        task_id = info.get("task_id")
         if task_id:
+            self.history.task_id = task_id
             return task_id
-        return None
+        return self.history.task_id
 
     def has_item(self, inventory: dict[str, Any], item_id: str) -> bool:
         items = inventory.get("items", [])
@@ -494,7 +475,7 @@ class Policy:
             state = "west_to_north"
         self.history.notes["task4_bridge_state"] = BRIDGE_CYCLE.get(state, "west_to_north")
 
-    def decide_task1(self, pixel_state: PixelState, inventory: dict[str, Any], reward_signals: dict[str, Any], frame: np.ndarray) -> int:
+    def decide_task1(self, pixel_state: PixelState, inventory: dict[str, Any], frame: np.ndarray) -> int:
         # Task 1: navigate to the key chest, then to the north exit. Walls are
         # perceived from the frame; BFS finds the shortest tile path through the
         # detected gaps. A pixel-alignment guard ensures the sprite clears 1-tile
@@ -505,7 +486,7 @@ class Policy:
         player_px = self.detect_player_px(frame)
         if player_px is None:
             return ACTION_NOOP
-        keys = self.current_keys(reward_signals, inventory)
+        keys = self.current_keys(inventory)
         blocked = self.build_blocked_tiles(frame, avoid_traps=False)
         if keys <= 0:
             chest = self.detect_chest_tile(frame)
@@ -532,7 +513,6 @@ class Policy:
         self,
         pixel_state: PixelState,
         inventory: dict[str, Any],
-        reward_signals: dict[str, Any],
         frame: np.ndarray,
     ) -> int:
         # Task 2: defeat the chaser monster, then navigate to the key chest,
@@ -549,7 +529,7 @@ class Policy:
         monster_tile = self.detect_monster_tile(frame)
         if monster_tile is not None:
             return self.attack_monster(tile, monster_tile)
-        keys = self.current_keys(reward_signals, inventory)
+        keys = self.current_keys(inventory)
         blocked = self.build_blocked_tiles(frame, avoid_traps=True)
         if keys <= 0:
             chest = self.detect_chest_tile(frame)
@@ -572,14 +552,14 @@ class Policy:
             final_action=EXIT_DIRECTION_ACTION["west"],
         )
 
-    def decide_task3(self, pixel_state: PixelState, inventory: dict[str, Any], reward_signals: dict[str, Any], frame: np.ndarray) -> int:
+    def decide_task3(self, pixel_state: PixelState, inventory: dict[str, Any], frame: np.ndarray) -> int:
         # Task 3: three rooms connected west→east: key_room ↔ monster_hall ↔ start_room.
         # No keys → navigate to the key chest (in key_room). Has keys → navigate
         # to the east exit (in start_room, locked_key). BFS handles within-room
         # wall avoidance automatically.
         room_id = pixel_state.room_id
         tile = pixel_state.player_tile
-        keys = self.current_keys(reward_signals, inventory)
+        keys = self.current_keys(inventory)
         if room_id is None or tile is None:
             return ACTION_NOOP
 
@@ -601,7 +581,6 @@ class Policy:
         self,
         pixel_state: PixelState,
         inventory: dict[str, Any],
-        reward_signals: dict[str, Any],
         frame: np.ndarray,
     ) -> int:
         # Task 4: five rooms around a center hub with a rotating bridge.
@@ -617,8 +596,8 @@ class Policy:
         if room_id is None or tile is None:
             return ACTION_NOOP
 
-        if float(reward_signals.get("monster_kill", 0.0) or 0.0) > 0:
-            self.history.notes["task4_guardian_defeated"] = True
+        # safe 模式下无 reward_signals，用图像感知判断 guardian 是否被击杀：
+        # 在 south 房间有剑且怪物不可见则视为已击败。
         if room_id == "south" and has_sword and not pixel_state.monster_visible:
             self.history.notes["task4_guardian_defeated"] = True
 
@@ -988,35 +967,62 @@ class Policy:
             return self.follow_bfs_aligned(player_px, tile, exit_goals, blocked, final_action=EXIT_DIRECTION_ACTION[direction])
         return self.follow_bfs(tile, exit_goals, blocked, x_first=True, final_action=EXIT_DIRECTION_ACTION[direction])
 
-    def update_task5_memory(self, pixel_state: PixelState, reward_signals: dict[str, Any]) -> None:
+    def update_task5_memory(
+        self,
+        pixel_state: PixelState,
+        inventory: dict[str, Any],
+        last_reward: float,
+        frame: np.ndarray,
+    ) -> None:
+        # safe 模式下无 reward_signals，基于 inventory diff + last_reward + 图像感知推断事件。
         room_id = pixel_state.room_id
+        notes = self.history.notes
         if room_id is not None:
-            self.history.notes["task5_last_room"] = room_id
+            notes["task5_last_room"] = room_id
         else:
-            room_id = self.history.notes.get("task5_last_room")
+            room_id = notes.get("task5_last_room")
 
-        if float(reward_signals.get("button_pressed", 0.0) or 0.0) > 0:
-            self.history.notes["task5_button_pressed"] = True
-        if float(reward_signals.get("key_collected", 0.0) or 0.0) > 0:
-            self.history.notes["task5_key_collected"] = True
-        if float(reward_signals.get("door_opened", 0.0) or 0.0) > 0:
-            self.history.notes["task5_east_gate_opened"] = True
-        if float(reward_signals.get("monster_hit", 0.0) or 0.0) > 0:
-            hits = int(self.history.notes.get("task5_start_monster_hits", 0) or 0)
-            self.history.notes["task5_start_monster_hits"] = hits + 1
-        if float(reward_signals.get("monster_kill", 0.0) or 0.0) > 0:
-            self.history.notes["task5_start_monster_cleared"] = True
-        if float(reward_signals.get("chest_opened", 0.0) or 0.0) <= 0:
-            return
+        # key_collected: inventory.keys 增加
+        prev = self.history.last_inventory or {}
+        if int(inventory.get("keys", 0)) > int(prev.get("keys", 0) or 0):
+            notes["task5_key_collected"] = True
 
-        if room_id == "task5_start":
-            self.history.notes["task5_start_chest_opened"] = True
-        elif room_id == "task5_south":
-            self.history.notes["task5_south_chest_opened"] = True
-        elif room_id == "task5_east":
-            self.history.notes["task5_east_chest_opened"] = True
-        elif room_id == "task5_west":
-            self.history.notes["task5_west_chest_opened"] = True
+        # 上一步按了 A 且 last_reward > 0：可能是 chest_opened / button_pressed / monster_kill
+        last_action = self.history.last_action
+        reward_positive = last_reward > 0
+        if last_action == ACTION_A and reward_positive:
+            # chest_opened：当前房间标记
+            if room_id == "task5_start" and not notes.get("task5_start_chest_opened"):
+                notes["task5_start_chest_opened"] = True
+            elif room_id == "task5_south" and not notes.get("task5_south_chest_opened"):
+                notes["task5_south_chest_opened"] = True
+            elif room_id == "task5_east" and not notes.get("task5_east_chest_opened"):
+                notes["task5_east_chest_opened"] = True
+            elif room_id == "task5_west" and not notes.get("task5_west_chest_opened"):
+                notes["task5_west_chest_opened"] = True
+            # button_pressed：上一步在按钮附近按 A 且有奖励
+            if not notes.get("task5_button_pressed"):
+                notes["task5_button_pressed"] = True
+            # door_opened：上一步在出口按方向键且 last_reward > 0（此处 action==A 不覆盖）
+
+        # monster_kill：上步有怪物 + 本步无怪物 + last_reward > 0
+        prev_monster = notes.get("task5_prev_monster_visible", False)
+        curr_monster = pixel_state.monster_visible
+        if prev_monster and not curr_monster and reward_positive:
+            notes["task5_start_monster_cleared"] = True
+        notes["task5_prev_monster_visible"] = curr_monster
+
+        # monster_hit：last_reward > 0 且怪物仍可见
+        if reward_positive and curr_monster:
+            hits = int(notes.get("task5_start_monster_hits", 0) or 0)
+            notes["task5_start_monster_hits"] = hits + 1
+
+        # door_opened / east_gate：last_reward > 0 且房间发生变化时标记
+        prev_room = notes.get("task5_prev_room")
+        if prev_room is not None and room_id is not None and prev_room != room_id and reward_positive:
+            notes["task5_east_gate_opened"] = True
+        if room_id is not None:
+            notes["task5_prev_room"] = room_id
 
     def task5_stage(self, inventory: dict[str, Any]) -> str:
         keys = int(inventory.get("keys", 0))
@@ -1037,14 +1043,14 @@ class Policy:
         self,
         pixel_state: PixelState,
         inventory: dict[str, Any],
-        reward_signals: dict[str, Any],
+        last_reward: float,
         frame: np.ndarray,
     ) -> int:
         # Task 5: four rooms with chests, button, locked gate, and monsters.
         # Stage management (which chest to open next) is preserved; within-room
         # navigation uses BFS with pixel alignment so hardcoded waypoints and
         # manual alignment ticks are eliminated.
-        self.update_task5_memory(pixel_state, reward_signals)
+        self.update_task5_memory(pixel_state, inventory, last_reward, frame)
         room_id = pixel_state.room_id
         tile = pixel_state.player_tile
         if room_id is None or tile is None:
@@ -1131,30 +1137,30 @@ class Policy:
         self,
         frame: np.ndarray,
         inventory: dict[str, Any],
-        reward_signals: dict[str, Any],
+        last_reward: float,
         info: dict[str, Any],
     ) -> int:
         task_id = self.infer_task_id(info)
         pixel_state = self.perceive(frame, task_id)
         if task_id == "mathematical_logic/task_1":
-            return self.decide_task1(pixel_state, inventory, reward_signals, frame)
+            return self.decide_task1(pixel_state, inventory, frame)
         if task_id == "mathematical_logic/task_2":
-            return self.decide_task2(pixel_state, inventory, reward_signals, frame)
+            return self.decide_task2(pixel_state, inventory, frame)
         if task_id == "mathematical_logic/task_3":
-            return self.decide_task3(pixel_state, inventory, reward_signals, frame)
+            return self.decide_task3(pixel_state, inventory, frame)
         if task_id == "mathematical_logic/task_4":
-            return self.decide_task4(pixel_state, inventory, reward_signals, frame)
+            return self.decide_task4(pixel_state, inventory, frame)
         if task_id == "mathematical_logic/task_5":
-            return self.decide_task5(pixel_state, inventory, reward_signals, frame)
+            return self.decide_task5(pixel_state, inventory, last_reward, frame)
 
         return ACTION_NOOP
 
     def act(self, obs, info: dict[str, Any]) -> int:
         inventory = self.extract_inventory(info)
-        reward_signals = self.reward_signals(info)
-        self.update_memory(reward_signals)
-        self.history.last_inventory = inventory
-        action = self.decide(obs, inventory, reward_signals, info)
+        last_reward = self.extract_last_reward(info)
+        self.update_memory_from_safe(inventory, last_reward, obs)
+        action = self.decide(obs, inventory, last_reward, info)
+        self.history.last_inventory = dict(inventory)
         self.update_facing(action)
         self.history.last_action = action
         return action
