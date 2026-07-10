@@ -225,7 +225,7 @@ theorem symbolicPolicy_getKey_goal_emits_openChest
       exfalso
       exact hChest hDet
   | some c =>
-      simp [hDet]
+      simp
 
 
 /-- Once a key is held and the agent is on a north-exit tile, the symbolic
