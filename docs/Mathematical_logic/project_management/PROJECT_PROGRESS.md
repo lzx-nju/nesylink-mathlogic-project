@@ -4,9 +4,9 @@
 
 - 项目名称：数理逻辑课程大作业
 - 仓库：`nesylink-mathlogic-project`
-- 当前阶段：baseline 改造与验证
-- 更新时间：2026-07-05
-- 当前目标：整理 `task_1`-`task_5` baseline、Lean 检查结果与报告材料
+- 当前阶段：spatial 变体修复与 robustness suite 验证
+- 更新时间：2026-07-11
+- 当前目标：task_1-4 original + spatial 全通过，task_5 导航 bug 待修
 
 ## 2. 当前里程碑
 
@@ -153,6 +153,24 @@
 | 2026-07-05 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_1`-`task_4` | 成功 | 3 个 seed 全部成功；`task_3` / `task_4` 已改为像素感知基线 |
 | 2026-07-05 | `utils/evaluate_policy.py` + `student_agent/baseline_policy.py` | `task_1`-`task_5` | 成功 | 单 seed 全任务通过，`task_5` 用 1112 步完成 |
 | 2026-07-05 | `lean` | `student_agent/lean/*.lean` | 成功 | 6 个 Lean 文件逐文件编译通过 |
+| 2026-07-10 | `utils/evaluate_policy.py` + `--info-mode safe` | `task_1`-`task_5` | task_1-4 成功，task_5 失败 | safe 模式 10 seed 评测，task_5 agent_dead |
+| 2026-07-11 | `utils/evaluate_policy.py` + `--robustness-suite --num-envs 30` | `task_1`-`task_4` | 成功 | original 72/72 + spatial 36/36 全通过，color 0/12 预期失败 |
+
+### 2026-07-10
+
+- 合并 upstream 评测脚本更新（`--info-mode safe`、`--task-policy`、spatial 变体扩展到 task_4/5）。
+- 全面适配 `safe` 信息模式：`update_memory` 与 `update_task5_memory` 重构为基于 `inventory` diff、`last_reward` 和像素感知的事件推断。
+- 在 `safe` 模式下运行 10 seed 评测：task_1-4 全部成功，task_5 事件推断正常但导航执行层仍有 bug（agent_dead）。
+- 同步更新 `Task1Formalization.lean` 注释与报告实验章节。
+
+### 2026-07-11
+
+- 修复 spatial 布局变体失败。
+- 根因一：`move_towards_aligned` 像素对齐阈值 `+1` 过松，在 1-tile 间隙处 sprite rect 覆盖相邻 blocking tile 导致卡住。修复为精确对齐 `+0` 并添加卡住检测（`mem_last_action_blocked` 追踪 reward ≤ -0.05）。
+- 根因二：`detect_task3_room` 硬编码 NPC/chest 位置，spatial 变体下 room 检测失败。修复为全网格扫描。
+- 修复前 spatial 通过率：task_1 1/3、task_2 1/3、task_3 0/3；修复后全部 3/3。
+- 运行 robustness suite（`--num-envs 30`）：task_1-4 的 original + spatial 共 108 个 episode 全部通过，color 变体预期失败（策略基于精确 RGB 匹配）。
+- 更新 `eval_results.json` 与报告实验章节。
 
 ## 9. 每日更新模板
 

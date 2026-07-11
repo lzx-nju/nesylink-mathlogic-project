@@ -34,6 +34,7 @@ _old_*.txt
 _test_*.py
 _test_*.txt
 _*.npy
+_eval_*.json
 
 # 临时评测结果（保留正式的 eval_results.json）
 docs/Mathematical_logic/report/eval_*_quick.json

@@ -828,24 +828,28 @@ Task 5 & room & \texttt{openStartChest} $\to$ \texttt{pressStartButton} $\to$ \t
 实验使用仓库自带评测脚本，采用与最终测评一致的 \texttt{safe} 信息模式
 （\texttt{info} 仅包含 \texttt{last\_reward}、\texttt{inventory} 和
 \texttt{task\_id}，不暴露 \texttt{reward\_signals} 等隐藏事件），
-并通过 \texttt{--task-policy} 为五个任务绑定同一策略文件以获取 \texttt{task\_id}：
+并通过 \texttt{--task-policy} 为每个任务绑定同一策略文件以获取 \texttt{task\_id}。
+为验证策略在布局扰动与颜色扰动下的鲁棒性，本次评测启用
+\texttt{--robustness-suite} 模式，每个任务的 \texttt{--num-envs 30} 个 episode
+按 60\% original / 30\% spatial（a/b/c 各 1，每变体 3 seed）/ 10\% color
+（grayscale/dark/bright 各 1）比例分配：
 \begin{quote}
 \small
 \texttt{python utils/evaluate\_policy.py}\\
-\texttt{--tasks mathematical\_logic/task\_1 ... task\_5}\\
+\texttt{--tasks mathematical\_logic/task\_1 ... task\_4}\\
 \texttt{--task-policy <task>=student\_agent/baseline\_policy.py}\\
-\texttt{--num-envs 10 --seed 0 --info-mode safe}
+\texttt{--robustness-suite --num-envs 30 --info-mode safe}
 \end{quote}
-运行环境为 Python 3.13 虚拟环境。本次报告记录的是
-2026 年 7 月 10 日在本地工作区运行的 10 seed 回归结果
-（\textbf{original} 地图与渲染，未启用 \texttt{--robustness-suite}，
-即不含 spatial 布局扰动与 color 颜色扰动变体）。
+运行环境为 Python 3.13 虚拟环境。本次报告记录的是 2026 年 7 月 11 日
+在本地工作区运行的 robustness suite 结果。
 \begin{itemize}[leftmargin=2em]
   \item 测试任务：\texttt{mathematical\_logic/task\_1} 至
-  \texttt{mathematical\_logic/task\_5}。
-  \item 运行次数：每个任务 10 个 episode，seed = 0--9。
-  \item 成功率统计方式：评测脚本输出的 \texttt{success\_rate}。
-  \item 策略版本：\texttt{student\_agent/baseline\_policy.py}（已适配 \texttt{safe} 模式）。
+  \texttt{mathematical\_logic/task\_4}（\texttt{task\_5} 代码未变，仍为 0\%，
+  见 \ref{sec:task5-status} 节）。
+  \item 运行次数：每个任务 30 个 episode（18 original + 9 spatial + 3 color）。
+  \item 成功率统计方式：评测脚本输出的 \texttt{success\_rate}，按 eval\_stage 分组。
+  \item 策略版本：\texttt{student\_agent/baseline\_policy.py}（已适配 \texttt{safe} 模式，
+  含 spatial 变体修复）。
   \item Lean 检查：逐文件运行 \texttt{lean student\_agent/lean/*.lean}
   对 7 个 Lean 文件进行编译检查，toolchain 版本为 \texttt{leanprover/lean4:v4.26.0}。
 \end{itemize}
@@ -854,18 +858,29 @@ Task 5 & room & \texttt{openStartChest} $\to$ \texttt{pressStartButton} $\to$ \t
 
 \begin{table}[H]
 \centering
-\begin{tabular}{p{0.10\textwidth}p{0.30\textwidth}p{0.10\textwidth}p{0.12\textwidth}p{0.12\textwidth}p{0.14\textwidth}}
+\begin{tabular}{p{0.08\textwidth}p{0.10\textwidth}p{0.08\textwidth}p{0.10\textwidth}p{0.12\textwidth}p{0.12\textwidth}p{0.14\textwidth}}
 \toprule
-任务 & 方法版本 & seeds & success\_rate & avg\_steps & avg\_reward \\
+任务 & stage & episodes & success\_rate & avg\_steps & avg\_reward & 备注 \\
 \midrule
-Task 1 & BFS + 像素对齐 & 10 & 1.000 & 269.0 & 127.310 \\
-Task 2 & BFS + 怪物感知 & 10 & 1.000 & 149.0 & 126.510 \\
-Task 3 & BFS + 房间识别 & 10 & 1.000 & 533.0 & 159.670 \\
-Task 4 & BFS + 桥/阶段机 & 10 & 1.000 & 1007.0 & 253.930 \\
-Task 5 & BFS + 事件推断阶段机 & 10 & 0.000 & 1000.0 & -7.700 \\
+Task 1 & original & 18 & 1.000 & 270.0 & 127.250 & 全部通过 \\
+Task 1 & spatial & 9  & 1.000 & 175.0 & 128.183 & a/b/c 各 3 seed 全通过 \\
+Task 1 & color    & 3  & 0.000 & 500.0 & -5.000  & 预期失败（RGB 匹配） \\
+\midrule
+Task 2 & original & 18 & 1.000 & 150.0 & 126.450 & 全部通过 \\
+Task 2 & spatial & 9  & 1.000 & 169.7 & 127.587 & a/b/c 各 3 seed 全通过 \\
+Task 2 & color    & 3  & 0.000 & 499.0 & -34.990 & 预期失败（RGB 匹配） \\
+\midrule
+Task 3 & original & 18 & 1.000 & 535.0 & 159.650 & 全部通过 \\
+Task 3 & spatial & 9  & 1.000 & 597.0 & 158.997 & a/b/c 各 3 seed 全通过 \\
+Task 3 & color    & 3  & 0.000 & 1500.0 & -15.000 & 预期失败（RGB 匹配） \\
+\midrule
+Task 4 & original & 18 & 1.000 & 1007.0 & 253.930 & 全部通过 \\
+Task 4 & spatial & 9  & 1.000 & 1221.0 & 249.373 & a/b/c 各 3 seed 全通过 \\
+Task 4 & color    & 3  & 0.000 & 2000.0 & -20.000 & 预期失败（RGB 匹配） \\
 \bottomrule
 \end{tabular}
-\caption{各任务实验结果汇总（10 seed，seed = 0--9，\texttt{safe} 信息模式）}
+\caption{Robustness suite 评测结果（\texttt{--num-envs 30}，\texttt{safe} 信息模式）。
+spatial 列的 a/b/c 指布局变体 spatial\_a/spatial\_b/spatial\_c。}
 \end{table}
 
 \begin{table}[H]
@@ -888,14 +903,35 @@ Task 5 & BFS + 事件推断阶段机 & 10 & 0.000 & 1000.0 & -7.700 \\
 
 \subsection{结果分析}
 
-本次 10 seed 评测在 \texttt{safe} 信息模式下运行
+本次 robustness suite 评测在 \texttt{safe} 信息模式下运行
 （\texttt{info} 仅含 \texttt{last\_reward}、\texttt{inventory}、\texttt{task\_id}）。
-\texttt{task\_1} 至 \texttt{task\_4} 全部 10 seed 成功（success\_rate = 1.000），
-说明这四个任务的高层阶段机、BFS 路径规划与基于 \texttt{inventory} diff +
-\texttt{last\_reward} 的事件推断逻辑在 \texttt{safe} 模式下能稳定完成目标。
-由于 baseline 是无随机成分的规则策略，各 seed 间步数与奖励完全一致，方差为零。
+\texttt{task\_1} 至 \texttt{task\_4} 在 original 和 spatial 变体上全部成功
+（success\_rate = 1.000），共 72 个 original episode + 36 个 spatial episode
+全部通过。这说明策略的高层阶段机、BFS 路径规划与基于
+\texttt{inventory} diff + \texttt{last\_reward} 的事件推断逻辑在
+\texttt{safe} 模式下能稳定完成目标，且对布局扰动具有鲁棒性。
+由于 baseline 是无随机成分的规则策略，同一变体各 seed 间步数与奖励完全一致，方差为零。
 
-\texttt{task\_5} 当前 success\_rate = 0.000，但里程碑统计显示事件推断层工作正常：
+spatial 变体测试覆盖 \texttt{spatial\_a}、\texttt{spatial\_b}、\texttt{spatial\_c}
+三种布局扰动，每变体 3 个 seed。修复前，\texttt{task\_1} 至 \texttt{task\_3}
+的 spatial 变体大量失败（\texttt{task\_1} 1/3、\texttt{task\_2} 1/3、\texttt{task\_3} 0/3），
+根因是像素对齐阈值过松（\texttt{move\_towards\_aligned} 中 \texttt{+1} 容差
+导致 1-tile 间隙处 sprite rect 覆盖相邻 blocking tile）和
+\texttt{detect\_task3\_room} 硬编码 NPC/chest 位置导致 spatial 变体下 room 检测失败。
+修复后（精确对齐 \texttt{+0}、卡住检测、全网格扫描房间识别），
+三个任务的 spatial 变体全部通过，共 27 个 spatial episode 无一失败。
+
+color 变体（grayscale/dark/bright）全部失败（success\_rate = 0.000），
+属于预期结果：当前策略基于精确 RGB 颜色匹配识别物体，
+颜色变换后视觉模块无法识别玩家、墙体、宝箱等关键对象，
+agent 只输出 NOOP 直至超时。该部分若需改进，需将视觉模块改造为
+HSV/亮度不变特征，但工作量大且收益有限。
+
+\subsubsection{Task 5 状态说明}
+\label{sec:task5-status}
+
+\texttt{task\_5} 当前 success\_rate = 0.000（代码未变，沿用 2026-07-10 的 10 seed 结果）。
+里程碑统计显示事件推断层工作正常：
 \texttt{chest\_opened}、\texttt{key\_collected}、\texttt{button\_pressed}、
 \texttt{monster\_killed}、\texttt{exit\_reached} 均为 1.000（10 seed 全部触发），
 说明四个宝箱开启、按钮按下、怪物击杀等高层事件均被正确识别并驱动阶段推进。
@@ -906,12 +942,15 @@ Task 5 & BFS + 事件推断阶段机 & 10 & 0.000 & 1000.0 & -7.700 \\
 事件推断逻辑的问题。
 
 \begin{itemize}[leftmargin=2em]
-  \item \texttt{task\_1} 至 \texttt{task\_4} 在 \texttt{safe} 模式下 10 seed 全部成功，
-  与 \texttt{full} 模式结果一致，验证了策略对隐藏 \texttt{info} 无依赖。
+  \item \texttt{task\_1} 至 \texttt{task\_4} 在 \texttt{safe} 模式下
+  original + spatial 共 27 个 episode 全部成功，验证了策略对隐藏 \texttt{info} 无依赖
+  且对布局扰动具有鲁棒性。
+  \item spatial 变体修复后，\texttt{task\_1} 至 \texttt{task\_3} 的 spatial 通过率
+  从 1/3、1/3、0/3 提升到 3/3，说明像素对齐和房间识别修复有效。
+  \item color 变体全部失败属于预期结果，当前策略基于精确 RGB 匹配，
+  未做颜色不变性处理。
   \item \texttt{task\_5} 的事件推断逻辑工作正常（所有高层里程碑均触发），
   通关失败是 BFS 导航执行层的 bug，后续可继续调试。
-  \item 测试环境若涉及布局或渲染细节扰动（spatial/color 变体），
-  仍可能因像素识别偏差导致失败，当前结果不能直接推出地图扰动下的泛化性能。
   \item Lean 证明与实验互补：实验说明 Python baseline 可运行，
   Lean 证明说明抽象后的环境语义、witness 计划、五个任务的高层阶段机策略
   以及通用有界 BFS 搜索框架在逻辑上自洽。
@@ -969,6 +1008,17 @@ Task 5 & BFS + 事件推断阶段机 & 10 & 0.000 & 1000.0 & -7.700 \\
   在 \texttt{safe} 模式下重新运行 10 seed 评测，task\_1--4 全部成功，
   task\_5 事件推断正常但导航执行层仍有 bug；
   同步更新 \texttt{Task1Formalization.lean} 注释与报告实验章节。
+  \item \textbf{2026-07-11}：修复 spatial 布局变体失败。
+  根因一：\texttt{move\_towards\_aligned} 像素对齐阈值 \texttt{+1} 过松，
+  在 1-tile 间隙处 sprite rect 覆盖相邻 blocking tile 导致卡住，
+  修复为精确对齐 \texttt{+0} 并添加卡住检测
+  （\texttt{mem\_last\_action\_blocked} 追踪 reward $\leq -0.05$）；
+  根因二：\texttt{detect\_task3\_room} 硬编码 NPC/chest 位置，
+  spatial 变体下 room 检测失败，修复为全网格扫描。
+  修复后运行 robustness suite（\texttt{--num-envs 30}），
+  task\_1--4 的 original + spatial 共 108 个 episode 全部通过，
+  color 变体预期失败（策略基于精确 RGB 匹配）；
+  更新 \texttt{eval\_results.json} 与报告实验章节。
 \end{itemize}
 
 \section{总结与展望}
@@ -976,8 +1026,9 @@ Task 5 & BFS + 事件推断阶段机 & 10 & 0.000 & 1000.0 & -7.700 \\
 本文完成了 NesyLink 数理逻辑课程项目的三条主线工作。
 第一，构建了统一的 Python baseline，全面适配评测脚本的 \texttt{safe} 信息模式
 （不依赖隐藏 \texttt{reward\_signals}，仅用 \texttt{last\_reward}、\texttt{inventory}
-和像素感知），在 \texttt{task\_1} 至 \texttt{task\_4} 的本地 10 seed 评测中全部成功
-（success\_rate = 1.000）；\texttt{task\_5} 事件推断层工作正常但导航执行层仍有 bug。
+和像素感知），在 \texttt{task\_1} 至 \texttt{task\_4} 的 robustness suite 评测中
+original 和 spatial 变体全部成功（72 + 36 = 108 个 episode 全通过，
+success\_rate = 1.000）；\texttt{task\_5} 事件推断层工作正常但导航执行层仍有 bug。
 第二，使用 Lean 对五个任务的环境语义进行了符号层形式化，
 覆盖状态、动作、转移、关键前置条件、不变式、完成后置条件和 witness 可完成性证明；
 并对 \texttt{task\_1} 至 \texttt{task\_5} 的阶段机策略补充了动作合法性与目标完成性证明。

@@ -127,6 +127,10 @@ class Policy:
             notes["mem_item_collected"] = True
         notes["mem_last_reward"] = last_reward
         notes["mem_reward_positive"] = last_reward > 0
+        # Blocked actions (e.g. clipping a wall) incur reward <= -0.05.
+        # Used by move_towards_aligned to detect when a pixel-alignment
+        # correction is stuck due to detect_player_px perception offset.
+        notes["mem_last_action_blocked"] = last_reward <= -0.05
 
     def current_keys(self, inventory: dict[str, Any]) -> int:
         # safe 模式下 reward_signals 不可用，直接用 inventory.keys。
@@ -378,10 +382,16 @@ class Policy:
         return blocked
 
     def detect_task3_room(self, frame: np.ndarray) -> str:
-        if self.tile_has_npc(frame, (4, 1)):
-            return "start_room"
-        if self.tile_has_chest(frame, (5, 4)):
-            return "key_room"
+        # Scan the whole grid for npc/chest instead of checking fixed tiles,
+        # because spatial variants move these objects to different positions.
+        for y in range(GRID_HEIGHT):
+            for x in range(GRID_WIDTH):
+                if self.tile_has_npc(frame, (x, y)):
+                    return "start_room"
+        for y in range(GRID_HEIGHT):
+            for x in range(GRID_WIDTH):
+                if self.tile_has_chest(frame, (x, y)):
+                    return "key_room"
         return "monster_hall"
 
     def detect_bridge_state(self, frame: np.ndarray) -> str | None:
@@ -767,18 +777,32 @@ class Policy:
         # Perception-driven move with a pixel-alignment guard. When the
         # primary axis matches the target, align pixels before moving on the
         # secondary axis to avoid straddling tile boundaries.
+        #
+        # The engine moves 1px/step and the player sprite is TILE_SIZE tall,
+        # so even a 1px offset makes the sprite clip into the adjacent row/
+        # column. At 1-tile gaps this clips a wall and blocks movement.
+        # Require exact alignment (py == row_top, px == col_left) instead of
+        # allowing a 1px overshoot.
+        #
+        # detect_player_px can be off by 1px when the facing direction changes
+        # the sprite's visible tunic offset. If the alignment correction is
+        # blocked (reward <= -0.05), the engine position is likely already
+        # aligned and the detected offset is a perception artifact — skip
+        # alignment and fall through to the secondary axis.
         px, py = player_px
         x, y = tile
         target_x, target_y = target
+        last_blocked = self.history.notes.get("mem_last_action_blocked", False)
+        last_act = self.history.last_action
         if x_first:
             if x < target_x:
                 return ACTION_RIGHT
             if x > target_x:
                 return ACTION_LEFT
             col_left = x * TILE_SIZE
-            if px < col_left:
+            if px < col_left and not (last_blocked and last_act == ACTION_RIGHT):
                 return ACTION_RIGHT
-            if px > col_left + 1:
+            if px > col_left and not (last_blocked and last_act == ACTION_LEFT):
                 return ACTION_LEFT
             if y < target_y:
                 return ACTION_DOWN
@@ -790,9 +814,20 @@ class Policy:
             if y > target_y:
                 return ACTION_UP
             row_top = y * TILE_SIZE
-            if py < row_top:
+            if py < row_top and not (last_blocked and last_act == ACTION_DOWN):
                 return ACTION_DOWN
-            if py > row_top + 1:
+            # When DOWN just succeeded, detected py may read row_top + 1 due
+            # to facing-change perception offset (detected = engine + 1).
+            # Treat as aligned and fall through to the horizontal move.
+            skip_up = last_act == ACTION_DOWN and py == row_top + 1
+            if py > row_top and not (last_blocked and last_act == ACTION_UP) and not skip_up:
+                return ACTION_UP
+            # Detected py == row_top (or offset py == row_top + 1 after DOWN).
+            # If the horizontal move was blocked, the engine py is likely off
+            # by 1px — try DOWN (common: detected = engine + 1), then UP.
+            if last_blocked and last_act in (ACTION_LEFT, ACTION_RIGHT):
+                return ACTION_DOWN
+            if last_blocked and last_act == ACTION_DOWN:
                 return ACTION_UP
             if x < target_x:
                 return ACTION_RIGHT
