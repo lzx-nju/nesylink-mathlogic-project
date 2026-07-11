@@ -402,20 +402,15 @@ class Policy:
     def detect_task4_room(self, frame: np.ndarray) -> str | None:
         if self.count_color(frame, ABYSS_COLOR) >= 600 or self.count_color(frame, BRIDGE_COLOR) >= 200:
             return "center"
-        if self.tile_has_switch(frame, (4, 4)):
-            return "west"
-        if self.tile_has_chest(frame, (5, 4)):
-            return "east"
-        if self.tile_has_chest(frame, (4, 3)):
-            return "north"
-
         top_middle_open = not self.tile_has_wall(frame, (4, 0)) and not self.tile_has_wall(frame, (5, 0))
         bottom_middle_open = not self.tile_has_wall(frame, (4, 7)) and not self.tile_has_wall(frame, (5, 7))
         if top_middle_open and not bottom_middle_open:
             return "south"
         if bottom_middle_open and not top_middle_open:
             return "north"
-        return None
+        if self.detect_switch_tile(frame) is not None:
+            return "west"
+        return "east"
 
     def detect_task5_room(self, frame: np.ndarray) -> str | None:
         # South room has a distinctive wall pattern at y=2 (x=2-7) and y=6 (x=4).
