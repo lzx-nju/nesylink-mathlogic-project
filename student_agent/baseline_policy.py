@@ -656,6 +656,14 @@ class Policy:
             chest = self.detect_chest_tile(frame)
             if chest is not None:
                 return self.navigate_to_goal(tile, chest, blocked, player_px=player_px, final_action=ACTION_A)
+            # Fallback: in spatial_c the final_chest is on a non-bridge (abyss)
+            # tile, so it's revealed but not rendered. Probe bridge edge tiles
+            # by pressing A — the engine only checks adjacency for chest
+            # interaction, so pressing A from a bridge tile adjacent to the
+            # hidden chest will open it.
+            probe = self.probe_hidden_chest(tile, blocked, player_px)
+            if probe is not None:
+                return probe
             return self.navigate_to_exit(tile, "south", blocked, player_px=player_px)
 
         if room_id == "north":
@@ -958,9 +966,77 @@ class Policy:
         # BFS to the exit tiles for the given direction, then issue the
         # direction action to transition. Uses pixel-alignment when available.
         exit_goals = set(EXIT_DIRECTION_TILES[direction])
+        exit_action = EXIT_DIRECTION_ACTION[direction]
+        # 当 agent 已在 exit tile 旁边时，先做严格像素对齐再触发 exit，
+        # 避免 sprite 越过 tile 边界撞到相邻墙（spatial_c 的 west east_exit）。
         if player_px is not None:
-            return self.follow_bfs_aligned(player_px, tile, exit_goals, blocked, final_action=EXIT_DIRECTION_ACTION[direction])
-        return self.follow_bfs(tile, exit_goals, blocked, x_first=True, final_action=EXIT_DIRECTION_ACTION[direction])
+            for goal in exit_goals:
+                if abs(goal[0] - tile[0]) + abs(goal[1] - tile[1]) == 1:
+                    px, py = player_px
+                    if direction in ("east", "west"):
+                        row_top = tile[1] * TILE_SIZE
+                        if py < row_top:
+                            return ACTION_DOWN
+                        if py > row_top:
+                            return ACTION_UP
+                    else:
+                        col_left = tile[0] * TILE_SIZE
+                        if px < col_left:
+                            return ACTION_RIGHT
+                        if px > col_left:
+                            return ACTION_LEFT
+                    return exit_action
+            return self.follow_bfs_aligned(player_px, tile, exit_goals, blocked, final_action=exit_action)
+        return self.follow_bfs(tile, exit_goals, blocked, x_first=True, final_action=exit_action)
+
+    def probe_hidden_chest(
+        self,
+        tile: Tile,
+        blocked: set[Tile],
+        player_px: tuple[float, float] | None,
+    ) -> int | None:
+        """Probe bridge edge tiles for a hidden final_chest.
+
+        In spatial_c the final_chest sits on a non-bridge (abyss) tile, so it's
+        revealed (is_visible=True) but not rendered (0 chest pixels). The engine
+        only checks Manhattan adjacency for chest interaction, so pressing A from
+        a bridge tile adjacent to the chest will open it. This method finds
+        walkable tiles bordering blocked (abyss) tiles, navigates to each one,
+        and presses A.
+        """
+        probed = set(tuple(t) for t in self.history.notes.get("task4_probed_tiles", []))
+
+        # Find bridge edge tiles: walkable tiles with ≥1 adjacent blocked tile.
+        bridge_edges: list[Tile] = []
+        for y in range(GRID_HEIGHT):
+            for x in range(GRID_WIDTH):
+                t = (x, y)
+                if t in blocked or not self.in_bounds(t):
+                    continue
+                for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    neighbor = (x + dx, y + dy)
+                    if self.in_bounds(neighbor) and neighbor in blocked:
+                        bridge_edges.append(t)
+                        break
+
+        # If at an unprobed bridge edge tile, press A to try opening the chest.
+        if tile in bridge_edges and tile not in probed:
+            probed.add(tile)
+            self.history.notes["task4_probed_tiles"] = [list(t) for t in probed]
+            return ACTION_A
+
+        # Navigate to the closest unprobed bridge edge tile.
+        unprobed = [t for t in bridge_edges if t not in probed]
+        if unprobed:
+            unprobed.sort(key=lambda t: abs(t[0] - tile[0]) + abs(t[1] - tile[1]))
+            goals = {unprobed[0]}
+            if player_px is not None:
+                return self.follow_bfs_aligned(player_px, tile, goals, blocked, final_action=ACTION_A)
+            return self.follow_bfs(tile, goals, blocked, x_first=True, final_action=ACTION_A)
+
+        # All probed — reset and try again.
+        self.history.notes["task4_probed_tiles"] = []
+        return ACTION_A
 
     def update_task5_memory(
         self,
