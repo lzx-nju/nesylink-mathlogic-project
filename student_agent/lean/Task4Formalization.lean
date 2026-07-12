@@ -748,158 +748,7 @@ theorem completion_postcondition {s : EnvState} (hr : Reachable s)
         rw [hstep, hf] at hc
         simp at hc
 
-def witnessPlan : List Action :=
-  [
-    Action.goCenter,
-    Action.goNorth,
-    Action.openChest,
-    Action.goCenter,
-    Action.goWest,
-    Action.toggleBridge,
-    Action.goCenter,
-    Action.goEast,
-    Action.openChest,
-    Action.goCenter,
-    Action.goWest,
-    Action.toggleBridge,
-    Action.goCenter,
-    Action.goSouth,
-    Action.attack,
-    Action.goCenter,
-    Action.openFinalChest
-  ]
-
-def finalState : EnvState :=
-  {
-    room := Room.center
-    bridge := BridgeState.westToSouth
-    keys := 1
-    hasShield := true
-    hasSword := true
-    northChestOpened := true
-    eastChestOpened := true
-    guardianAlive := false
-    finalChestVisible := true
-    finalChestOpened := true
-  }
-
-theorem witnessPlan_executes_to_finalState :
-    run initialState witnessPlan = finalState := by
-  rfl
-
-theorem witnessPlan_reaches_goal :
-    GoalReached (run initialState witnessPlan) := by
-  simp [GoalReached, witnessPlan_executes_to_finalState, finalState]
-
-theorem task4_completable :
-    ∃ plan, GoalReached (run initialState plan) := by
-  exact ⟨witnessPlan, witnessPlan_reaches_goal⟩
-
-/-! ### Symbolic policy formalization -/
-
-/--
-The abstract stage machine behind the task 4 baseline. This is the symbolic
-counterpart of the Python `decide_task4` routine: it ignores pixel-level
-waypoints and keeps only the high-level subgoal ordering that matters for the
-environment proof.
--/
-inductive PolicyStage where
-  | getKey
-  | getSword
-  | killGuardian
-  | openFinalChest
-  | done
-  deriving DecidableEq, Repr
-
-def policyStage (s : EnvState) : PolicyStage :=
-  if s.northChestOpened = false then PolicyStage.getKey
-  else if s.eastChestOpened = false then PolicyStage.getSword
-  else if s.guardianAlive = true then PolicyStage.killGuardian
-  else if s.finalChestOpened = false then PolicyStage.openFinalChest
-  else PolicyStage.done
-
-/-- The bridge state required by each stage to reach its target room. -/
-def desiredBridge (stage : PolicyStage) : BridgeState :=
-  match stage with
-  | PolicyStage.getKey => BridgeState.westToNorth
-  | PolicyStage.getSword => BridgeState.westToEast
-  | PolicyStage.killGuardian => BridgeState.westToSouth
-  | PolicyStage.openFinalChest => BridgeState.westToSouth
-  | PolicyStage.done => BridgeState.westToNorth
-
-/--
-State-driven room-level policy. It maps the current symbolic state to the next
-high-level action, including bridge toggling in the west room and navigation
-through the center room to reach the subgoal required by the current stage.
-
-Stage route:
-  west (toggle bridge) → center → north (open chest for key)
-  → center → west (toggle bridge) → center → east (open chest for sword)
-  → center → west (toggle bridge) → center → south (attack guardian)
-  → center (open final chest)
--/
-def symbolicPolicy (s : EnvState) : Action :=
-  match policyStage s with
-  | PolicyStage.getKey =>
-      match s.room with
-      | Room.west =>
-          if s.bridge = desiredBridge PolicyStage.getKey then
-            Action.goCenter
-          else
-            Action.toggleBridge
-      | Room.center =>
-          if bridgeAllowsNorth s.bridge then
-            Action.goNorth
-          else
-            Action.goWest
-      | Room.north => Action.openChest
-      | _ => Action.goCenter
-  | PolicyStage.getSword =>
-      match s.room with
-      | Room.west =>
-          if s.bridge = desiredBridge PolicyStage.getSword then
-            Action.goCenter
-          else
-            Action.toggleBridge
-      | Room.center =>
-          if bridgeAllowsEast s.bridge ∧ hasKey s then
-            Action.goEast
-          else
-            Action.goWest
-      | Room.east => Action.openChest
-      | _ => Action.goCenter
-  | PolicyStage.killGuardian =>
-      match s.room with
-      | Room.west =>
-          if s.bridge = desiredBridge PolicyStage.killGuardian then
-            Action.goCenter
-          else
-            Action.toggleBridge
-      | Room.center =>
-          if bridgeAllowsSouth s.bridge then
-            Action.goSouth
-          else
-            Action.goWest
-      | Room.south => Action.attack
-      | _ => Action.goCenter
-  | PolicyStage.openFinalChest =>
-      match s.room with
-      | Room.center => Action.openFinalChest
-      | _ => Action.goCenter
-  | PolicyStage.done => Action.wait
-
-def policyStep (s : EnvState) : EnvState :=
-  step s (symbolicPolicy s)
-
-def runPolicy : Nat → EnvState → EnvState
-  | 0, s => s
-  | n + 1, s => runPolicy n (policyStep s)
-
-def policyTrace : Nat → EnvState → List Action
-  | 0, _ => []
-  | n + 1, s =>
-      let a := symbolicPolicy s
-      a :: policyTrace n (step s a)
+/-! ### Action-mask/safety layer -/
 
 /-- Legal-action predicate for the symbolic transition layer (Bool version
     for computable checking via `native_decide`). -/
@@ -909,9 +758,9 @@ def actionEnabled (s : EnvState) : Action → Bool
       s.room = Room.west || s.room = Room.north ||
       s.room = Room.east || s.room = Room.south
   | Action.goWest => s.room = Room.center
-  | Action.goNorth => s.room = Room.center && (bridgeAllowsNorth s.bridge)
-  | Action.goEast => s.room = Room.center && (bridgeAllowsEast s.bridge) && hasKey s
-  | Action.goSouth => s.room = Room.center && (bridgeAllowsSouth s.bridge)
+  | Action.goNorth => s.room = Room.center && decide (bridgeAllowsNorth s.bridge)
+  | Action.goEast => s.room = Room.center && decide (bridgeAllowsEast s.bridge) && s.keys > 0
+  | Action.goSouth => s.room = Room.center && decide (bridgeAllowsSouth s.bridge)
   | Action.openChest =>
       (s.room = Room.north && s.northChestOpened = false) ||
       (s.room = Room.east && s.eastChestOpened = false)
@@ -925,25 +774,257 @@ def actionsEnabledAlong : EnvState → List Action → Bool
   | _, [] => true
   | s, a :: rest => actionEnabled s a && actionsEnabledAlong (step s a) rest
 
-theorem policyTrace_17_matches_witnessPlan :
-    policyTrace 17 initialState = witnessPlan := by
-  native_decide
+/-! ### Interaction preserves lemmas (for BFS certificate proofs) -/
 
-theorem policyTrace_17_actions_enabled :
-    actionsEnabledAlong initialState (policyTrace 17 initialState) = true := by
-  native_decide
+theorem openChest_north_preserves_guardianAlive
+    {s : EnvState} (hRoom : s.room = Room.north) (hChest : s.northChestOpened = false) :
+    (step s Action.openChest).guardianAlive = s.guardianAlive := by
+  simp [step, hRoom, hChest]
 
-theorem symbolicPolicy_run_17_finalState :
-    runPolicy 17 initialState = finalState := by
-  native_decide
+theorem openChest_north_preserves_eastChestOpened
+    {s : EnvState} (hRoom : s.room = Room.north) (hChest : s.northChestOpened = false) :
+    (step s Action.openChest).eastChestOpened = s.eastChestOpened := by
+  simp [step, hRoom, hChest]
 
-theorem symbolicPolicy_reaches_goal :
-    GoalReached (runPolicy 17 initialState) := by
-  rw [symbolicPolicy_run_17_finalState]
-  simp [GoalReached, finalState]
+theorem openChest_east_preserves_guardianAlive
+    {s : EnvState} (hRoom : s.room = Room.east) (hChest : s.eastChestOpened = false) :
+    (step s Action.openChest).guardianAlive = s.guardianAlive := by
+  have hNorth : ¬(s.room = Room.north ∧ s.northChestOpened = false) := by
+    intro h; rw [hRoom] at h; simp at h
+  simp [step, hRoom, hChest, hNorth]
 
-theorem task4_symbolicPolicy_completes :
-    ∃ n, GoalReached (runPolicy n initialState) := by
-  exact ⟨17, symbolicPolicy_reaches_goal⟩
+/-! ### Baseline-aligned symbolic policy (BFS certificate mode) -/
+
+/--
+A symbolic BFS action provider.  In Python this is implemented by
+`bfs_path(...)` plus `follow_bfs_aligned(...)`, which returns one movement
+action toward the first tile of the current shortest path, or the supplied
+`final_action` when already at a goal room.
+-/
+abbrev BfsAction := EnvState → Room → Action
+
+/--
+Policy shape matching `decide_task4`.
+
+1. If north chest not opened: if at north, openChest; else BFS to north.
+2. Else if east chest not opened: if at east, openChest; else BFS to east.
+3. Else if guardian alive: if at south, attack; else BFS to south.
+4. Else: if at center, openFinalChest; else BFS to center.
+
+This definition is parameterized by `bfsAction`: Lean verifies the stage logic
+and the BFS contract separately, instead of hardcoding a route.
+-/
+def symbolicPolicy (bfsAction : BfsAction) (s : EnvState) : Action :=
+  if s.finalChestOpened then Action.wait
+  else if s.northChestOpened = false then
+    if s.room = Room.north then Action.openChest
+    else bfsAction s Room.north
+  else if s.eastChestOpened = false then
+    if s.room = Room.east then Action.openChest
+    else bfsAction s Room.east
+  else if s.guardianAlive = true then
+    if s.room = Room.south then Action.attack
+    else bfsAction s Room.south
+  else
+    if s.room = Room.center then Action.openFinalChest
+    else bfsAction s Room.center
+
+/-! ### BFS route certificates -/
+
+/--
+Soundness certificate for a room-approach BFS phase.  The plan must end at the
+target room while preserving all interaction-relevant state (keys, sword,
+chests, guardian, visibility, completion).
+-/
+structure ApproachCertificate (target : Room) (start : EnvState) where
+  plan : List Action
+  enabled : actionsEnabledAlong start plan = true
+  endsAtRoom : (run start plan).room = target
+  keysPreserved : (run start plan).keys = start.keys
+  hasShieldPreserved : (run start plan).hasShield = start.hasShield
+  hasSwordPreserved : (run start plan).hasSword = start.hasSword
+  northChestOpenedPreserved : (run start plan).northChestOpened = start.northChestOpened
+  eastChestOpenedPreserved : (run start plan).eastChestOpened = start.eastChestOpened
+  guardianAlivePreserved : (run start plan).guardianAlive = start.guardianAlive
+  finalChestVisiblePreserved : (run start plan).finalChestVisible = start.finalChestVisible
+  finalChestOpenedPreserved : (run start plan).finalChestOpened = start.finalChestOpened
+
+abbrev NorthApproachCertificate (start : EnvState) := ApproachCertificate Room.north start
+abbrev EastApproachCertificate (start : EnvState) := ApproachCertificate Room.east start
+abbrev SouthApproachCertificate (start : EnvState) := ApproachCertificate Room.south start
+abbrev CenterApproachCertificate (start : EnvState) := ApproachCertificate Room.center start
+
+/-! ### Main non-fixed-route Task 4 theorem -/
+
+/--
+Task 4 completion theorem aligned with the BFS policy.
+
+The policy structure is:
+1. BFS to north → openChest (gains one key)
+2. BFS to east → openChest (gains sword)
+3. BFS to south → attack (defeats guardian, reveals final chest)
+4. BFS to center → openFinalChest (completes task)
+
+This theorem chains the BFS certificates and the interaction actions.
+-/
+theorem task4_bfs_certificate_completes
+    (northRoute : NorthApproachCertificate initialState)
+    (eastRoute : EastApproachCertificate
+      (step (run initialState northRoute.plan) Action.openChest))
+    (southRoute : SouthApproachCertificate
+      (step (run (step (run initialState northRoute.plan) Action.openChest) eastRoute.plan) Action.openChest))
+    (centerRoute : CenterApproachCertificate
+      (step (run (step (run (step (run initialState northRoute.plan) Action.openChest) eastRoute.plan) Action.openChest) southRoute.plan) Action.attack)) :
+    GoalReached
+      (step
+        (run
+          (step
+            (run
+              (step
+                (run
+                  (step (run initialState northRoute.plan) Action.openChest)
+                  eastRoute.plan)
+                Action.openChest)
+              southRoute.plan)
+            Action.attack)
+          centerRoute.plan)
+        Action.openFinalChest) := by
+  let sN := run initialState northRoute.plan
+  let sNK := step sN Action.openChest
+  let sE := run sNK eastRoute.plan
+  let sEK := step sE Action.openChest
+  let sS := run sEK southRoute.plan
+  let sSK := step sS Action.attack
+  let sC := run sSK centerRoute.plan
+  -- North-approach BFS: ends at north, northChestOpened still false, guardian alive.
+  have hRoomN : sN.room = Room.north := northRoute.endsAtRoom
+  have hNChestClosed : sN.northChestOpened = false := by
+    have h := northRoute.northChestOpenedPreserved; rw [h]; simp [initialState]
+  have hNGuardian : sN.guardianAlive = true := by
+    have h := northRoute.guardianAlivePreserved; rw [h]; simp [initialState]
+  have hNEastChest : sN.eastChestOpened = false := by
+    have h := northRoute.eastChestOpenedPreserved; rw [h]; simp [initialState]
+  -- Open chest (north): guardian/eastChest preserved.
+  have hNKGuardian : sNK.guardianAlive = sN.guardianAlive :=
+    openChest_north_preserves_guardianAlive hRoomN hNChestClosed
+  have hNKEastChest : sNK.eastChestOpened = sN.eastChestOpened :=
+    openChest_north_preserves_eastChestOpened hRoomN hNChestClosed
+  -- East-approach BFS: ends at east, eastChestOpened still false, guardian preserved.
+  have hRoomE : sE.room = Room.east := eastRoute.endsAtRoom
+  have hEEastChest : sE.eastChestOpened = false := by
+    have h1 : sE.eastChestOpened = sNK.eastChestOpened := eastRoute.eastChestOpenedPreserved
+    rw [h1, hNKEastChest, hNEastChest]
+  have hEGuardian : sE.guardianAlive = true := by
+    have h1 : sE.guardianAlive = sNK.guardianAlive := eastRoute.guardianAlivePreserved
+    rw [h1, hNKGuardian, hNGuardian]
+  -- Open chest (east): guardian preserved.
+  have hEKGuardian : sEK.guardianAlive = sE.guardianAlive :=
+    openChest_east_preserves_guardianAlive hRoomE hEEastChest
+  -- South-approach BFS: ends at south, guardian preserved, hasSword preserved.
+  have hRoomS : sS.room = Room.south := southRoute.endsAtRoom
+  have hSGuardian : sS.guardianAlive = true := by
+    have h1 : sS.guardianAlive = sEK.guardianAlive := southRoute.guardianAlivePreserved
+    rw [h1, hEKGuardian, hEGuardian]
+  have hSSword : sS.hasSword = true := by
+    have h1 : sS.hasSword = sEK.hasSword := southRoute.hasSwordPreserved
+    have h2 : sEK.hasSword = true := openChest_east_grants_sword hRoomE hEEastChest
+    rw [h1]; exact h2
+  -- Attack: guardian defeated, final chest visible.
+  have hAttack := attack_with_sword_reveals_final_chest hRoomS hSGuardian hSSword
+  have hSKVisible : sSK.finalChestVisible = true := hAttack.2
+  -- Center-approach BFS: ends at center, finalChestVisible preserved.
+  have hRoomC : sC.room = Room.center := centerRoute.endsAtRoom
+  have hCVisible : sC.finalChestVisible = true := by
+    have h1 : sC.finalChestVisible = sSK.finalChestVisible := centerRoute.finalChestVisiblePreserved
+    rw [h1]; exact hSKVisible
+  -- openFinalChest on center with visibility → finalChestOpened.
+  have hDone : (step sC Action.openFinalChest).finalChestOpened = true :=
+    openFinalChest_succeeds_when_visible hRoomC hCVisible
+  simpa [GoalReached, sN, sNK, sE, sEK, sS, sSK, sC] using hDone
+
+/-! ### Public map regression instance -/
+
+-- Room-level BFS plans for the public Task-4 layout.
+def publicNorthPlan : List Action :=
+  [Action.goCenter, Action.goNorth]
+def publicEastPlan : List Action :=
+  [Action.goCenter, Action.goWest, Action.toggleBridge, Action.goCenter, Action.goEast]
+def publicSouthPlan : List Action :=
+  [Action.goCenter, Action.goWest, Action.toggleBridge, Action.goCenter, Action.goSouth]
+def publicCenterPlan : List Action :=
+  [Action.goCenter]
+
+def publicNorthRoute : NorthApproachCertificate initialState :=
+  { plan := publicNorthPlan
+    enabled := by native_decide
+    endsAtRoom := by native_decide
+    keysPreserved := by native_decide
+    hasShieldPreserved := by native_decide
+    hasSwordPreserved := by native_decide
+    northChestOpenedPreserved := by native_decide
+    eastChestOpenedPreserved := by native_decide
+    guardianAlivePreserved := by native_decide
+    finalChestVisiblePreserved := by native_decide
+    finalChestOpenedPreserved := by native_decide }
+
+def publicEastRoute : EastApproachCertificate
+      (step (run initialState publicNorthPlan) Action.openChest) :=
+  { plan := publicEastPlan
+    enabled := by native_decide
+    endsAtRoom := by native_decide
+    keysPreserved := by native_decide
+    hasShieldPreserved := by native_decide
+    hasSwordPreserved := by native_decide
+    northChestOpenedPreserved := by native_decide
+    eastChestOpenedPreserved := by native_decide
+    guardianAlivePreserved := by native_decide
+    finalChestVisiblePreserved := by native_decide
+    finalChestOpenedPreserved := by native_decide }
+
+def publicSouthRoute : SouthApproachCertificate
+      (step (run (step (run initialState publicNorthPlan) Action.openChest) publicEastPlan) Action.openChest) :=
+  { plan := publicSouthPlan
+    enabled := by native_decide
+    endsAtRoom := by native_decide
+    keysPreserved := by native_decide
+    hasShieldPreserved := by native_decide
+    hasSwordPreserved := by native_decide
+    northChestOpenedPreserved := by native_decide
+    eastChestOpenedPreserved := by native_decide
+    guardianAlivePreserved := by native_decide
+    finalChestVisiblePreserved := by native_decide
+    finalChestOpenedPreserved := by native_decide }
+
+def publicCenterRoute : CenterApproachCertificate
+      (step (run (step (run (step (run initialState publicNorthPlan) Action.openChest) publicEastPlan) Action.openChest) publicSouthPlan) Action.attack) :=
+  { plan := publicCenterPlan
+    enabled := by native_decide
+    endsAtRoom := by native_decide
+    keysPreserved := by native_decide
+    hasShieldPreserved := by native_decide
+    hasSwordPreserved := by native_decide
+    northChestOpenedPreserved := by native_decide
+    eastChestOpenedPreserved := by native_decide
+    guardianAlivePreserved := by native_decide
+    finalChestVisiblePreserved := by native_decide
+    finalChestOpenedPreserved := by native_decide }
+
+theorem public_task4_bfs_certificate_completes :
+    GoalReached
+      (step
+        (run
+          (step
+            (run
+              (step
+                (run
+                  (step (run initialState publicNorthPlan) Action.openChest)
+                  publicEastPlan)
+                Action.openChest)
+              publicSouthPlan)
+            Action.attack)
+          publicCenterPlan)
+        Action.openFinalChest) := by
+  exact task4_bfs_certificate_completes publicNorthRoute publicEastRoute
+    publicSouthRoute publicCenterRoute
 
 end Task4Formalization

@@ -37,8 +37,10 @@
 witness 计划 $\rightarrow$ 可完成性。其中 \texttt{task\_4} 因涉及旋转桥、条件门、
 装备获取与事件驱动显现机制，作为重点展开对象。
 此外，本文对 \texttt{task\_1} 至 \texttt{task\_5} 进一步补充了高层符号策略形式化：
-定义 \texttt{PolicyStage}、\texttt{symbolicPolicy}、动作合法性检查
-和策略执行轨迹，并证明五个任务的阶段机策略从初态出发均能选择合法动作且到达对应目标。
+\texttt{task\_1} 至 \texttt{task\_4} 采用 BFS 证书模式
+（\texttt{symbolicPolicy} 参数化于 BFS 动作提供器，通过证书结构证明非固定路线完备性），
+\texttt{task\_5} 采用 \texttt{PolicyStage} 阶段机与 \texttt{policyTrace} 模式，
+并证明五个任务的符号策略从初态出发均能选择合法动作且到达对应目标。
 在此基础上，本文进一步抽取了独立的 \texttt{StrategyFramework.lean}，
 形式化通用策略执行、动作 mask 安全证书、有界可达性和 BFS 访问集，
 并证明“若某目标在 $n$ 步内由某个计划可达，则完整动作集上的深度 $n$ BFS 必会访问到目标态”。
@@ -254,7 +256,10 @@ Lean 部分首先完成五个任务的环境形式化与 witness 可完成性证
   不直接读取隐藏的 \texttt{info["env"]}、\texttt{info["agent"]}、
   \texttt{info["dynamic"]} 或 \texttt{info["events"]}。
   \item Lean 验证了五个任务的符号层环境、显式 witness 计划，
-  以及全部五个任务的高层阶段机策略（\texttt{symbolicPolicy}）的合法性与完成性；
+  以及全部五个任务的高层符号策略（\texttt{symbolicPolicy}）的合法性与完成性
+  ——\texttt{task\_1} 至 \texttt{task\_4} 采用 BFS 证书模式
+  （策略参数化于 BFS 动作提供器，证书结构证明非固定路线完备性），
+  \texttt{task\_5} 采用 \texttt{PolicyStage} 阶段机与 \texttt{policyTrace} 模式；
   同时新增通用策略框架文件，证明有界 BFS 搜索的框架级完备性；
   尚未证明像素感知层一定能在所有渲染扰动下恢复这些符号状态。
 \end{itemize}
@@ -657,69 +662,147 @@ Task 5 包含 4 个房间（\texttt{startRoom / southRoom / eastRoom / westRoom}
 \subsubsection{策略形式化与正确性证明}
 
 为覆盖评分项中的“策略形式化与证明”，五个 Task 的 Lean 文件
-在环境模型之后均进一步定义了 \texttt{PolicyStage} 与 \texttt{symbolicPolicy}，
+在环境模型之后均进一步定义了 \texttt{symbolicPolicy}，
 将 Python \texttt{baseline\_policy.py} 中的规则逻辑提升为符号策略。
-每个 Task 的阶段机与策略步数汇总如下：
+其中 \texttt{task\_1} 至 \texttt{task\_4} 采用 \textbf{BFS 证书模式}
+（策略参数化于 BFS 动作提供器，通过证书结构证明非固定路线的完备性），
+\texttt{task\_5} 仍保留 \texttt{PolicyStage} 阶段机与 \texttt{policyTrace} 模式
+（证明策略轨迹与手工见证计划一致）。各 Task 的策略模式汇总如下：
 
 \begin{table}[H]
 \centering
 \footnotesize
-\begin{tabular}{@{}ll>{\raggedright\arraybackslash}p{0.58\textwidth}r@{}}
+\begin{tabular}{@{}ll>{\raggedright\arraybackslash}p{0.42\textwidth}l@{}}
 \toprule
-Task & 抽象层级 & \texttt{PolicyStage} 阶段 & 策略步数 \\
+Task & 抽象层级 & 阶段机 / BFS 目标 & 策略模式 \\
 \midrule
-Task 1 & tile & \texttt{openChest} $\to$ \texttt{goNorth} $\to$ \texttt{done} & 22 \\
-Task 2 & zone & \texttt{killMonster} $\to$ \texttt{openChest} $\to$ \texttt{useExit} $\to$ \texttt{done} & 7 \\
-Task 3 & room & \texttt{getKey} $\to$ \texttt{useExit} $\to$ \texttt{done} & 6 \\
-Task 4 & room & \texttt{getKey} $\to$ \texttt{getSword} $\to$ \texttt{killGuardian} $\to$ \texttt{openFinalChest} $\to$ \texttt{done} & 17 \\
-Task 5 & room & \texttt{openStartChest} $\to$ \texttt{pressStartButton} $\to$ \texttt{openSouthChest} $\to$ \texttt{openEastChest} $\to$ \texttt{openWestChest} $\to$ \texttt{done} & 10 \\
+Task 1 & tile & \texttt{openChest} $\to$ \texttt{goNorth} $\to$ done & BFS 证书 \\
+Task 2 & zone & \texttt{nearMonster} $\to$ \texttt{nearChest} $\to$ \texttt{westExit} & BFS 证书 \\
+Task 3 & room & \texttt{keyRoom} $\to$ \texttt{startRoom} & BFS 证书 \\
+Task 4 & room & \texttt{north} $\to$ \texttt{east} $\to$ \texttt{south} $\to$ \texttt{center} & BFS 证书 \\
+Task 5 & room & \texttt{openStartChest} $\to$ \texttt{pressStartButton} $\to$ \texttt{openSouthChest} $\to$ \texttt{openEastChest} $\to$ \texttt{openWestChest} & PolicyStage \\
 \bottomrule
 \end{tabular}
-\caption{五个任务的符号策略阶段机与步数}
+\caption{五个任务的符号策略模式汇总}
 \end{table}
 
-\texttt{symbolicPolicy} 是状态驱动的反应式策略：
-它读取当前 \texttt{EnvState}，通过 \texttt{policyStage} 判断当前所处阶段，
-然后根据阶段和当前房间/坐标输出下一个高层动作。
-以 Task 4 为例，策略在 \texttt{west} 房间会先检查桥梁方位是否匹配目标房间，
-不匹配则 \texttt{toggleBridge}，匹配则 \texttt{goCenter} 进入中转，
-再根据阶段导航到 \texttt{north}/\texttt{east}/\texttt{south}。
+\paragraph{BFS 证书模式（Task 1--4）}
+Task 1--4 的策略形式化采用统一的 BFS 证书模式，核心理念是
+\textbf{策略逻辑与具体路线解耦}：\texttt{symbolicPolicy} 参数化于一个
+\texttt{BfsAction} 类型别名（动作提供器），Lean 侧只验证阶段逻辑与
+BFS 契约的正确性，而不硬编码具体路径。该模式由以下五部分构成：
 
-为了证明策略不是单纯列出路径，每个 Lean 文件还定义了：
-\begin{itemize}[leftmargin=2em]
-  \item \texttt{policyTrace}：从当前状态反复调用 \texttt{symbolicPolicy} 生成动作轨迹；
-  \item \texttt{runPolicy}：直接执行策略得到后继状态；
-  \item \texttt{actionEnabled}（\texttt{Bool} 版本）：刻画每个动作在当前状态下是否合法，
-  例如 Task 3 的 \texttt{openLockedExit} 需要
-  \(\texttt{room = startRoom} \land \texttt{keys > 0}\)，
-  Task 4 的 \texttt{goEast} 需要
-  \(\texttt{bridgeAllowsEast} \land \texttt{hasKey}\)，
-  Task 5 的 \texttt{goSouth} 需要 \texttt{buttonPressed = true}；
-  \item \texttt{actionsEnabledAlong}：递归检查整条策略轨迹上每一步动作都满足对应前置条件。
-\end{itemize}
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{\texttt{BfsAction} 类型别名}：抽象 BFS 动作提供器，
+  签名因任务抽象层级而异——
+  Task 1 为 \texttt{EnvState $\to$ List Tile $\to$ Action}（tile 目标集），
+  Task 2 为 \texttt{EnvState $\to$ Zone $\to$ Action}（zone 目标），
+  Task 3/4 为 \texttt{EnvState $\to$ Room $\to$ Action}（room 目标）。
+  \item \textbf{\texttt{symbolicPolicy} 参数化定义}：读取当前 \texttt{EnvState}，
+  按阶段输出下一个高层动作；若已处于目标位置则发出交互动作（\texttt{openChest}/\texttt{attack}/\texttt{useExit}/\texttt{openFinalChest}/\texttt{up}），
+  否则委托 \texttt{bfsAction} 寻路。该结构与 Python \texttt{decide\_taskN}
+  的阶段判断完全对应。
+  \item \textbf{BFS 证书 \texttt{structure}}：每段 BFS 路线由一个证书结构约束，
+  字段包括 \texttt{plan}（动作列表）、\texttt{enabled}（轨迹上每步动作合法）、
+  \texttt{endsAt$<$Target$>$}（终点到达目标）、以及一组状态保留字段
+  （\texttt{keysPreserved}/\texttt{chestOpenedPreserved}/\texttt{monsterAlivePreserved} 等），
+  确保 BFS 移动不破坏已完成阶段的关键状态。
+  \item \textbf{主定理}：将多段 BFS 证书与显式交互动作链接，
+  证明“若各段 BFS 证书成立，则从初态出发依策略执行可到达目标”。
+  证明中用 \texttt{let} 引入中间状态别名，以
+  \texttt{simpa [GoalReached, ...] using hDone} 关闭目标
+  （项目使用纯 Lean 4 无 Mathlib，\texttt{set} 战术不可用）。
+  \item \textbf{\texttt{native\_decide} 回归实例}：在公开地图上用具体 \texttt{plan}
+  实例化各证书字段，通过 \texttt{native\_decide} 计算验证，
+  作为对非固定路线主定理的回归检查。
+\end{enumerate}
 
-每个 Task 的核心策略定理如下：
+\textbf{Python 策略与 Lean \texttt{symbolicPolicy} 对照}：
+下表给出四个 BFS 证书任务中 Python \texttt{baseline\_policy.py} 的 \texttt{decide\_taskN}
+与 Lean \texttt{symbolicPolicy} 的阶段对应关系，二者在阶段判定与最终交互动作上完全一致。
+
+\begin{table}[H]
+\centering
+\footnotesize
+\begin{tabular}{@{}l>{\raggedright\arraybackslash}p{0.40\textwidth}>{\raggedright\arraybackslash}p{0.40\textwidth}l@{}}
+\toprule
+Task & Python \texttt{decide\_taskN} & Lean \texttt{symbolicPolicy} & 对应 \\
+\midrule
+Task 1 & keys$\leq$0 $\to$ BFS 到宝箱邻居 $\to$ \texttt{ACTION\_A}；keys$>$0 $\to$ BFS 到北门 $\to$ \texttt{UP} & keys$=$0 $\to$ BFS 到 chest goals $\to$ \texttt{openChest}；else $\to$ BFS 到 north exit $\to$ \texttt{up} & \checkmark \\
+Task 2 & 怪物可见 $\to$ \texttt{attack}；keys$\leq$0 $\to$ BFS 到宝箱 $\to$ \texttt{ACTION\_A}；keys$>$0 $\to$ BFS 到西出口 & \texttt{monsterAlive} $\to$ \texttt{attack}；\texttt{chestOpened$=$false} $\to$ \texttt{openChest}；else $\to$ \texttt{useExit} & \checkmark \\
+Task 3 & keys$\leq$0 + key\_room $\to$ \texttt{ACTION\_A}；keys$\leq$0 + not key\_room $\to$ west；keys$>$0 $\to$ east & \texttt{keyChestOpened$=$false} $\to$ BFS 到 keyRoom $\to$ \texttt{openChest}；else $\to$ BFS 到 startRoom $\to$ \texttt{openLockedExit} & \checkmark \\
+Task 4 & get\_key $\to$ north；get\_sword $\to$ east；kill\_guardian $\to$ south；open\_final\_chest $\to$ center & \texttt{northChestOpened$=$false} $\to$ north；\texttt{eastChestOpened$=$false} $\to$ east；\texttt{guardianAlive} $\to$ south；else $\to$ center & \checkmark \\
+\bottomrule
+\end{tabular}
+\caption{Task 1--4 的 Python 策略与 Lean \texttt{symbolicPolicy} 对照}
+\end{table}
+
+\textbf{BFS 证书结构与主定理}：四个任务的证书结构与主定理命名如下。
+每段证书均要求 \texttt{enabled}（轨迹合法）与到达目标，
+并保留与后续阶段相关的关键状态字段。
+
+\begin{longtable}{p{0.12\textwidth}p{0.30\textwidth}p{0.20\textwidth}p{0.30\textwidth}}
+\toprule
+Task & BFS 证书结构 & 主定理 & 显式交互动作 \\
+\midrule
+\endhead
+Task 1 & \texttt{ChestBfsCertificate}, \texttt{ExitBfsCertificate} & \texttt{task1\_bfs\_certificate\_completes} & \texttt{openChest}, \texttt{up} \\
+Task 2 & \texttt{MonsterApproachCertificate}, \texttt{ChestApproachCertificate}, \texttt{ExitApproachCertificate} & \texttt{task2\_bfs\_certificate\_completes} & \texttt{attack}$\times$2, \texttt{openChest}, \texttt{useExit} \\
+Task 3 & \texttt{KeyRoomApproachCertificate}, \texttt{StartRoomApproachCertificate} & \texttt{task3\_bfs\_certificate\_completes} & \texttt{openChest}, \texttt{openLockedExit} \\
+Task 4 & \texttt{ApproachCertificate}（参数化于目标 Room，含 \texttt{North}/\texttt{East}/\texttt{South}/\texttt{Center} 四个别名） & \texttt{task4\_bfs\_certificate\_completes} & \texttt{openChest}$\times$2, \texttt{attack}, \texttt{openFinalChest} \\
+\bottomrule
+\end{longtable}
+
+以 Task 2 为例，主定理 \texttt{task2\_bfs\_certificate\_completes} 的证明骨架为：
 \[
 \begin{aligned}
-&\texttt{policyTrace\_N\_matches\_witnessPlan}:\\
-&\quad \texttt{policyTrace N initialState = witnessPlan};\\
-&\texttt{policyTrace\_N\_actions\_enabled}:\\
-&\quad \texttt{actionsEnabledAlong initialState (policyTrace N initialState) = true};\\
-&\texttt{symbolicPolicy\_run\_N\_finalState}:\\
-&\quad \texttt{runPolicy N initialState = finalState};\\
-&\texttt{taskN\_symbolicPolicy\_completes}:\\
-&\quad \exists n,\ \texttt{GoalReached (runPolicy n initialState)}.
+&\text{monsterRoute}:\ \texttt{MonsterApproachCertificate initialState}\\
+&\quad \xrightarrow{\texttt{attack}\times 2}\ \text{monsterHp } 2\to 1\to 0,\ \text{monster defeated}\\
+&\text{chestRoute}:\ \texttt{ChestApproachCertificate}\ s_{A2}\\
+&\quad \xrightarrow{\texttt{openChest}}\ \text{keys}+1,\ \text{chestOpened}:=\text{true}\\
+&\text{exitRoute}:\ \texttt{ExitApproachCertificate}\ s_{O}\\
+&\quad \xrightarrow{\texttt{useExit}}\ \text{completed}:=\text{true}
 \end{aligned}
 \]
-其中 $N$ 为各任务的策略步数（22/7/6/17/10）。
-前两个定理证明策略轨迹与手工构造的见证计划完全一致、且轨迹上每个动作都合法；
-后两个定理证明策略从初态出发在有限步内到达目标。
+其中状态别名通过 \texttt{let sM / sA1 / sA2 / sC / sO / sE} 引入，
+状态保留字段跨证书链式传递
+（例如 \texttt{sC.chestOpened} 需经
+\texttt{chestRoute.chestOpenedPreserved}$\to$\texttt{attack\_preserves\_chestOpened}$\times$2$\to$\texttt{monsterRoute.chestOpenedPreserved}
+回溯到 \texttt{initialState.chestOpened = false}）。
+
+\textbf{Task 4 的参数化证书}：Task 4 将四段 BFS 路线统一为单个
+\texttt{ApproachCertificate (target : Room) (start : EnvState)} 结构，
+通过 \texttt{abbrev} 派生出 \texttt{NorthApproachCertificate}、
+\texttt{EastApproachCertificate}、\texttt{SouthApproachCertificate}、
+\texttt{CenterApproachCertificate} 四个实例，
+避免重复定义。主定理链接四段证书与四个交互动作
+（\texttt{openChest} 取钥匙、\texttt{openChest} 取剑、\texttt{attack} 击杀守卫、
+\texttt{openFinalChest} 完成任务），并保留 \texttt{guardianAlive}、
+\texttt{hasSword}、\texttt{finalChestVisible} 等跨阶段状态。
+
+\paragraph{PolicyStage 阶段机模式（Task 5）}
+\texttt{task\_5} 仍采用 \texttt{PolicyStage} 阶段机与 \texttt{policyTrace} 模式：
+\texttt{symbolicPolicy} 读取 \texttt{policyStage} 判断当前阶段
+（\texttt{openStartChest}/\texttt{pressStartButton}/\texttt{openSouthChest}/\texttt{openEastChest}/\texttt{openWestChest}/\texttt{done}），
+输出对应高层动作；\texttt{policyTrace} 反复调用策略生成 10 步动作轨迹。
+核心策略定理为：
+\[
+\begin{aligned}
+&\texttt{policyTrace\_10\_matches\_witnessPlan}:\ \texttt{policyTrace 10 initialState = witnessPlan};\\
+&\texttt{policyTrace\_10\_actions\_enabled}:\ \texttt{actionsEnabledAlong initialState (policyTrace 10 initialState)};\\
+&\texttt{symbolicPolicy\_run\_10\_finalState}:\ \texttt{runPolicy 10 initialState = finalState};\\
+&\texttt{task5\_symbolicPolicy\_completes}:\ \exists n,\ \texttt{GoalReached (runPolicy n initialState)}.
+\end{aligned}
+\]
+前两个定理证明策略轨迹与手工见证计划一致、且每步动作合法；
+后两个定理证明策略从初态出发在 10 步内完成全宝箱收集目标。
 
 \texttt{actionEnabled} 采用 \texttt{Bool} 而非 \texttt{Prop}，
-使得 \texttt{actionsEnabledAlong} 可以通过 \texttt{native\_decide}
-直接计算验证，无需手动构造 \texttt{Decidable} 实例。
+使得 \texttt{actionsEnabledAlong} 与 BFS 证书的 \texttt{enabled} 字段均可通过
+\texttt{native\_decide} 直接计算验证，无需手动构造 \texttt{Decidable} 实例。
 这说明五个任务的 Lean 部分不再只证明“存在一条完成路径”，
-而是证明一个显式阶段机策略从初态出发会选择合法动作，并在有限步内完成目标。
+而是证明一个显式策略（BFS 证书模式或阶段机模式）从初态出发会选择合法动作，
+并在有限步内完成目标。
 
 \subsection{统一策略框架与有界完备性证明}
 

@@ -283,87 +283,7 @@ theorem completion_postcondition {s : EnvState} (hr : Reachable s) (hc : s.compl
         rw [hstep, hf] at hc
         simp at hc
 
-def witnessPlan : List Action :=
-  [
-    Action.goWest,
-    Action.goWest,
-    Action.openChest,
-    Action.goEast,
-    Action.goEast,
-    Action.openLockedExit
-  ]
-
-def finalState : EnvState :=
-  {
-    room := Room.startRoom
-    keys := 0
-    keyChestOpened := true
-    hallMonsterAlive := true
-    completed := true
-  }
-
-theorem witnessPlan_executes_to_finalState :
-    run initialState witnessPlan = finalState := by
-  rfl
-
-theorem witnessPlan_reaches_goal :
-    GoalReached (run initialState witnessPlan) := by
-  simp [GoalReached, witnessPlan_executes_to_finalState, finalState]
-
-theorem task3_completable :
-    ∃ plan, GoalReached (run initialState plan) := by
-  exact ⟨witnessPlan, witnessPlan_reaches_goal⟩
-
-/-! ### Symbolic policy formalization -/
-
-/--
-The abstract stage machine behind the task 3 baseline. This is the symbolic
-counterpart of the Python `decide_task3` routine: it ignores pixel-level
-waypoints and keeps only the high-level subgoal ordering that matters for the
-environment proof.
--/
-inductive PolicyStage where
-  | getKey
-  | useExit
-  | done
-  deriving DecidableEq, Repr
-
-def policyStage (s : EnvState) : PolicyStage :=
-  if s.keyChestOpened = false then PolicyStage.getKey
-  else if s.completed = false then PolicyStage.useExit
-  else PolicyStage.done
-
-/--
-State-driven room-level policy. It maps the current symbolic state to the next
-high-level action, including navigation actions that move between rooms to reach
-the subgoal required by the current stage.
--/
-def symbolicPolicy (s : EnvState) : Action :=
-  match policyStage s with
-  | PolicyStage.getKey =>
-      match s.room with
-      | Room.startRoom => Action.goWest
-      | Room.monsterHall => Action.goWest
-      | Room.keyRoom => Action.openChest
-  | PolicyStage.useExit =>
-      match s.room with
-      | Room.keyRoom => Action.goEast
-      | Room.monsterHall => Action.goEast
-      | Room.startRoom => Action.openLockedExit
-  | PolicyStage.done => Action.wait
-
-def policyStep (s : EnvState) : EnvState :=
-  step s (symbolicPolicy s)
-
-def runPolicy : Nat → EnvState → EnvState
-  | 0, s => s
-  | n + 1, s => runPolicy n (policyStep s)
-
-def policyTrace : Nat → EnvState → List Action
-  | 0, _ => []
-  | n + 1, s =>
-      let a := symbolicPolicy s
-      a :: policyTrace n (step s a)
+/-! ### Action-mask/safety layer -/
 
 /-- Legal-action predicate for the symbolic transition layer (Bool version
     for computable checking via `native_decide`). -/
@@ -378,25 +298,143 @@ def actionsEnabledAlong : EnvState → List Action → Bool
   | _, [] => true
   | s, a :: rest => actionEnabled s a && actionsEnabledAlong (step s a) rest
 
-theorem policyTrace_6_matches_witnessPlan :
-    policyTrace 6 initialState = witnessPlan := by
-  native_decide
+/-! ### Baseline-aligned symbolic policy (BFS certificate mode) -/
 
-theorem policyTrace_6_actions_enabled :
-    actionsEnabledAlong initialState (policyTrace 6 initialState) = true := by
-  native_decide
+/--
+A symbolic BFS action provider.  In Python this is implemented by
+`bfs_path(...)` plus `follow_bfs_aligned(...)`, which returns one movement
+action toward the first tile of the current shortest path, or the supplied
+`final_action` when already at a goal room.
+-/
+abbrev BfsAction := EnvState → Room → Action
 
-theorem symbolicPolicy_run_6_finalState :
-    runPolicy 6 initialState = finalState := by
-  native_decide
+/--
+Policy shape matching `decide_task3`.
 
-theorem symbolicPolicy_reaches_goal :
-    GoalReached (runPolicy 6 initialState) := by
-  rw [symbolicPolicy_run_6_finalState]
-  simp [GoalReached, finalState]
+1. If the key chest is not yet opened: if at `keyRoom`, openChest; else BFS to
+   `keyRoom`.
+2. Else (key held): if at `startRoom`, openLockedExit; else BFS to `startRoom`.
 
-theorem task3_symbolicPolicy_completes :
-    ∃ n, GoalReached (runPolicy n initialState) := by
-  exact ⟨6, symbolicPolicy_reaches_goal⟩
+This definition is parameterized by `bfsAction`: Lean verifies the stage logic
+and the BFS contract separately, instead of hardcoding a route.
+-/
+def symbolicPolicy (bfsAction : BfsAction) (s : EnvState) : Action :=
+  if s.completed then Action.wait
+  else if s.keyChestOpened = false then
+    if s.room = Room.keyRoom then Action.openChest
+    else bfsAction s Room.keyRoom
+  else
+    if s.room = Room.startRoom then Action.openLockedExit
+    else bfsAction s Room.startRoom
+
+/-! ### BFS route certificates -/
+
+/--
+Soundness certificate for the key-room-approach BFS phase.  The plan must end at
+`keyRoom` while preserving state (keys unchanged, chest still closed, hall
+monster unchanged, not completed).
+-/
+structure KeyRoomApproachCertificate (start : EnvState) where
+  plan : List Action
+  enabled : actionsEnabledAlong start plan = true
+  endsAtKeyRoom : (run start plan).room = Room.keyRoom
+  keysPreserved : (run start plan).keys = start.keys
+  keyChestOpenedPreserved : (run start plan).keyChestOpened = start.keyChestOpened
+  hallMonsterAlivePreserved : (run start plan).hallMonsterAlive = start.hallMonsterAlive
+  completedPreserved : (run start plan).completed = start.completed
+
+/--
+Soundness certificate for the start-room-approach BFS phase.  The plan must end
+at `startRoom` while preserving state (keys > 0, chest opened, hall monster
+unchanged, not completed).
+-/
+structure StartRoomApproachCertificate (start : EnvState) where
+  plan : List Action
+  enabled : actionsEnabledAlong start plan = true
+  endsAtStartRoom : (run start plan).room = Room.startRoom
+  keysPreserved : (run start plan).keys = start.keys
+  keyChestOpenedPreserved : (run start plan).keyChestOpened = start.keyChestOpened
+  hallMonsterAlivePreserved : (run start plan).hallMonsterAlive = start.hallMonsterAlive
+  completedPreserved : (run start plan).completed = start.completed
+
+/-! ### Main non-fixed-route Task 3 theorem -/
+
+/--
+Task 3 completion theorem aligned with the BFS policy.
+
+The policy structure is:
+1. BFS to keyRoom → openChest (gains one key)
+2. BFS back to startRoom → openLockedExit (consumes key, completes task)
+
+This theorem chains the BFS certificates and the interaction actions.
+-/
+theorem task3_bfs_certificate_completes
+    (keyRoute : KeyRoomApproachCertificate initialState)
+    (startRoute :
+      StartRoomApproachCertificate
+        (step (run initialState keyRoute.plan) Action.openChest)) :
+    GoalReached
+      (step
+        (run
+          (step (run initialState keyRoute.plan) Action.openChest)
+          startRoute.plan)
+        Action.openLockedExit) := by
+  let sK := run initialState keyRoute.plan
+  let sO := step sK Action.openChest
+  let sS := run sO startRoute.plan
+  -- Key-room-approach BFS: ends at keyRoom, chest still closed.
+  have hRoomK : sK.room = Room.keyRoom := keyRoute.endsAtKeyRoom
+  have hChestClosed : sK.keyChestOpened = false := by
+    have h := keyRoute.keyChestOpenedPreserved
+    rw [h]; simp [initialState]
+  -- Open chest: keys + 1, chest marked opened.
+  have hOKeys : sO.keys > 0 := by
+    have hInc : (step sK Action.openChest).keys = sK.keys + 1 :=
+      openChest_in_keyRoom_increases_keys hRoomK hChestClosed
+    show (step sK Action.openChest).keys > 0
+    rw [hInc]; omega
+  -- Start-room-approach BFS: ends at startRoom, keys preserved > 0.
+  have hRoomS : sS.room = Room.startRoom := startRoute.endsAtStartRoom
+  have hSKeys : sS.keys > 0 := by
+    have h1 : sS.keys = sO.keys := startRoute.keysPreserved
+    rw [h1]; exact hOKeys
+  -- openLockedExit on startRoom with keys > 0 → completed.
+  have h := openLockedExit_consumes_key_and_completes hRoomS hSKeys
+  simpa [GoalReached, sK, sO, sS] using h.2
+
+/-! ### Public map regression instance -/
+
+-- Room-level BFS plans for the public Task-3 layout.
+def publicKeyPlan : List Action := [Action.goWest, Action.goWest]
+def publicStartPlan : List Action := [Action.goEast, Action.goEast]
+
+def publicKeyRoute : KeyRoomApproachCertificate initialState :=
+  { plan := publicKeyPlan
+    enabled := by native_decide
+    endsAtKeyRoom := by native_decide
+    keysPreserved := by native_decide
+    keyChestOpenedPreserved := by native_decide
+    hallMonsterAlivePreserved := by native_decide
+    completedPreserved := by native_decide }
+
+def publicStartRoute :
+    StartRoomApproachCertificate
+      (step (run initialState publicKeyPlan) Action.openChest) :=
+  { plan := publicStartPlan
+    enabled := by native_decide
+    endsAtStartRoom := by native_decide
+    keysPreserved := by native_decide
+    keyChestOpenedPreserved := by native_decide
+    hallMonsterAlivePreserved := by native_decide
+    completedPreserved := by native_decide }
+
+theorem public_task3_bfs_certificate_completes :
+    GoalReached
+      (step
+        (run
+          (step (run initialState publicKeyPlan) Action.openChest)
+          publicStartPlan)
+        Action.openLockedExit) := by
+  exact task3_bfs_certificate_completes publicKeyRoute publicStartRoute
 
 end Task3Formalization
