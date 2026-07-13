@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -38,6 +38,9 @@ BUTTON_DOWN_COLOR: Color = (28, 112, 52)
 # Trap spike pixels (sprites.py:39-41). Distinctive against floor/wall colors.
 TRAP_SPIKE_METAL: Color = (238, 238, 236)
 TRAP_SPIKE_SHADE: Color = (112, 112, 126)
+
+# 容差匹配：逆变换后 uint8 截断会产生 ±1 误差，设为 2 覆盖边界情况。
+COLOR_TOL: int = 2
 
 # Exit tile positions per direction (schema.py:30-35) and the action that
 # triggers the exit once standing on one of its tiles.
@@ -95,6 +98,84 @@ class Policy:
         # 新版评测脚本无参数调用 reset()。task_id 改由 info["task_id"] 在
         # act() 中获取（仅 --task-policy 模式提供）。
         self.history = AgentHistory()
+
+    def normalize_obs(self, frame: np.ndarray) -> np.ndarray:
+        """检测 color 变体并尽可能恢复 default 外观。
+
+        使用参考色存在性检测（而非亮度统计），避免不同地图天然亮度差异导致误判。
+        依次检查 PLAYER_COLORS 在各变体下的变换值是否存在于帧中：
+          - default：原始参考色存在 → 无需变换；
+          - inverted：(255-c) 存在 → 逆变换 255-frame；
+          - dark：(int(c*0.55)) 存在 → 逆变换 frame/0.55；
+          - bright：(min(255,int(c*1.35))) 存在 → 存 variant，前向变换参考色。
+        最后检查 grayscale/high_contrast（有损不可逆，原样返回）。
+        """
+        img = np.asarray(frame)
+        if img.ndim != 3 or img.shape[2] != 3:
+            self.history.notes["_obs_variant"] = "default"
+            return frame
+
+        int_img = img.astype(np.int16)
+        min_count = 3  # 至少 3 像素匹配才算检测到
+
+        # 1. 检查 default：原始参考色存在
+        for c in PLAYER_COLORS:
+            diff = np.abs(int_img - np.array(c, dtype=np.int16))
+            if np.count_nonzero(np.all(diff <= COLOR_TOL, axis=2)) >= min_count:
+                self.history.notes["_obs_variant"] = "default"
+                return img
+
+        # 2. 检查 inverted：(255 - c) 存在
+        for c in PLAYER_COLORS:
+            inv = np.array([255 - x for x in c], dtype=np.int16)
+            diff = np.abs(int_img - inv)
+            if np.count_nonzero(np.all(diff <= COLOR_TOL, axis=2)) >= min_count:
+                self.history.notes["_obs_variant"] = "default"
+                return (255 - img).astype(np.uint8)
+
+        # 3. 检查 dark：(int(c * 0.55)) 存在
+        for c in PLAYER_COLORS:
+            dark = np.array([int(x * 0.55) for x in c], dtype=np.int16)
+            diff = np.abs(int_img - dark)
+            if np.count_nonzero(np.all(diff <= COLOR_TOL, axis=2)) >= min_count:
+                self.history.notes["_obs_variant"] = "default"
+                return (img.astype(np.float32) / 0.55).clip(0, 255).astype(np.uint8)
+
+        # 4. 检查 bright：(min(255, int(c * 1.35))) 存在
+        for c in PLAYER_COLORS:
+            bright = np.array([min(255, int(x * 1.35)) for x in c], dtype=np.int16)
+            diff = np.abs(int_img - bright)
+            if np.count_nonzero(np.all(diff <= COLOR_TOL, axis=2)) >= min_count:
+                self.history.notes["_obs_variant"] = "bright"
+                return img
+
+        # 5. 检查 grayscale：彩色像素占比极低
+        r, g, b = int_img[:, :, 0], int_img[:, :, 1], int_img[:, :, 2]
+        max_diff = np.maximum(np.maximum(np.abs(r - g), np.abs(g - b)), np.abs(r - b))
+        if float(np.mean(max_diff > 15)) < 0.005:
+            self.history.notes["_obs_variant"] = "grayscale"
+            return img
+
+        # 6. 检查 high_contrast：像素值只有 0/255
+        uniq = np.unique(img)
+        if uniq.size <= 6 and bool(np.all(np.isin(uniq, [0, 255]))):
+            self.history.notes["_obs_variant"] = "high_contrast"
+            return img
+
+        # 兜底：当作 default
+        self.history.notes["_obs_variant"] = "default"
+        return img
+
+    def _effective_color(self, color: Color) -> Color:
+        """根据检测到的 color 变体，将参考色前向变换到帧空间。
+
+        dark/inverted 已由 normalize_obs 逆变换恢复，参考色不变；
+        bright 未逆变换（clip 不可逆），需将参考色前向变换 ×1.35 clip 后匹配。
+        """
+        variant = self.history.notes.get("_obs_variant", "default")
+        if variant == "bright":
+            return cast(Color, tuple(min(255, int(c * 1.35)) for c in color))
+        return color
 
     def extract_inventory(self, info: dict[str, Any]) -> dict[str, Any]:
         inventory = info.get("inventory", {})
@@ -160,7 +241,9 @@ class Policy:
         x_values: list[np.ndarray] = []
         y_values: list[np.ndarray] = []
         for color in MONSTER_COLORS:
-            mask = np.all(frame == color, axis=2)
+            eff = self._effective_color(color)
+            diff = np.abs(frame.astype(np.int16) - np.array(eff, dtype=np.int16))
+            mask = np.all(diff <= COLOR_TOL, axis=2)
             ys, xs = np.nonzero(mask)
             if len(xs) > 0:
                 x_values.append(xs)
@@ -181,7 +264,9 @@ class Policy:
             return []
         tiles: set[Tile] = set()
         for color in MONSTER_COLORS:
-            mask = np.all(frame == color, axis=2)
+            eff = self._effective_color(color)
+            diff = np.abs(frame.astype(np.int16) - np.array(eff, dtype=np.int16))
+            mask = np.all(diff <= COLOR_TOL, axis=2)
             ys, xs = np.nonzero(mask)
             for x, y in zip(xs, ys):
                 tile = (min(GRID_WIDTH - 1, x // TILE_SIZE), min(GRID_HEIGHT - 1, y // TILE_SIZE))
@@ -269,7 +354,10 @@ class Policy:
         else:
             x, y = tile
             area = frame[y * TILE_SIZE : (y + 1) * TILE_SIZE, x * TILE_SIZE : (x + 1) * TILE_SIZE]
-        return int(np.count_nonzero(np.all(area == color, axis=2)))
+        # 容差匹配（±COLOR_TOL）：兼容 normalize_obs 逆变换后 uint8 截断的 ±1 误差。
+        eff = self._effective_color(color)
+        diff = np.abs(area.astype(np.int16) - np.array(eff, dtype=np.int16))
+        return int(np.count_nonzero(np.all(diff <= COLOR_TOL, axis=2)))
 
     def count_any_color(self, frame: np.ndarray, colors: tuple[Color, ...], tile: Tile | None = None) -> int:
         return sum(self.count_color(frame, color, tile) for color in colors)
@@ -281,7 +369,10 @@ class Policy:
         x_values: list[np.ndarray] = []
         y_values: list[np.ndarray] = []
         for color in PLAYER_COLORS:
-            mask = np.all(frame == color, axis=2)
+            # 容差匹配（±COLOR_TOL）：兼容 color 变体逆变换后的截断误差。
+            eff = self._effective_color(color)
+            diff = np.abs(frame.astype(np.int16) - np.array(eff, dtype=np.int16))
+            mask = np.all(diff <= COLOR_TOL, axis=2)
             ys, xs = np.nonzero(mask)
             if len(xs) > 0:
                 x_values.append(xs)
@@ -1262,6 +1353,8 @@ class Policy:
         return ACTION_NOOP
 
     def act(self, obs, info: dict[str, Any]) -> int:
+        # color 变体预处理：检测并逆转 dark/bright/inverted，恢复近似 default 外观。
+        obs = self.normalize_obs(obs)
         inventory = self.extract_inventory(info)
         last_reward = self.extract_last_reward(info)
         self.update_memory_from_safe(inventory, last_reward, obs)
