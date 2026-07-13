@@ -520,12 +520,15 @@ class Policy:
         south_walls = [(2, 2), (3, 2), (4, 2), (5, 2), (6, 2), (7, 2), (4, 6)]
         if all(self.tile_has_wall(frame, t) for t in south_walls):
             return "task5_south"
-        # East room has walls at (5,1), (6,1), (5,2), (6,2).
-        east_walls = [(5, 1), (6, 1), (5, 2), (6, 2)]
+        # East room (room_1_0) walls at (2,2), (2,3), (2,4), (5,4), (6,4).
+        # 选取与其他房间不冲突的独特位置：(2,2) 在 south/west 也是墙，故排除。
+        east_walls = [(2, 3), (2, 4), (5, 4), (6, 4)]
         if all(self.tile_has_wall(frame, t) for t in east_walls):
             return "task5_east"
-        # West room has walls at (6,1), (5,2), (5,3), (3,5), (4,5).
-        west_walls = [(6, 1), (5, 2), (5, 3), (3, 5), (4, 5)]
+        # West room (room_-1_0) walls at (1,2), (2,2), (5,5), (4,6), (5,6).
+        # 选取与其他房间不冲突的独特位置：(2,2) 在 east/south 也是墙、
+        # (4,6) 在 south 也是墙，故排除。
+        west_walls = [(1, 2), (5, 5), (5, 6)]
         if all(self.tile_has_wall(frame, t) for t in west_walls):
             return "task5_west"
         # Start room fallback: chest at (4,2) or button at (2,6).
@@ -1095,9 +1098,21 @@ class Policy:
         exit_action = EXIT_DIRECTION_ACTION[direction]
         # 当 agent 已在 exit tile 旁边时，先做严格像素对齐再触发 exit，
         # 避免 sprite 越过 tile 边界撞到相邻墙（spatial_c 的 west east_exit）。
+        # 只处理与 exit 方向一致的相邻位置（如 south 方向只处理 agent 在
+        # exit tile 正上方的情况），避免在地图边界处卡死。
         if player_px is not None:
             for goal in exit_goals:
                 if abs(goal[0] - tile[0]) + abs(goal[1] - tile[1]) == 1:
+                    dx = goal[0] - tile[0]
+                    dy = goal[1] - tile[1]
+                    if direction in ("east", "west"):
+                        # east/west: agent 必须在 exit tile 正左/右方（y 相同）
+                        if dy != 0:
+                            continue
+                    else:
+                        # north/south: agent 必须在 exit tile 正上/下方（x 相同）
+                        if dx != 0:
+                            continue
                     px, py = player_px
                     if direction in ("east", "west"):
                         row_top = tile[1] * TILE_SIZE
@@ -1184,28 +1199,49 @@ class Policy:
         if int(inventory.get("keys", 0)) > int(prev.get("keys", 0) or 0):
             notes["task5_key_collected"] = True
 
-        # 上一步按了 A 且 last_reward > 0：可能是 chest_opened / button_pressed / monster_kill
+        # 上一步按了 A 且 last_reward > 0：可能是 chest_opened / button_pressed / monster_hit
         last_action = self.history.last_action
         reward_positive = last_reward > 0
         if last_action == ACTION_A and reward_positive:
-            # chest_opened：当前房间标记
-            if room_id == "task5_start" and not notes.get("task5_start_chest_opened"):
-                notes["task5_start_chest_opened"] = True
-            elif room_id == "task5_south" and not notes.get("task5_south_chest_opened"):
-                notes["task5_south_chest_opened"] = True
-            elif room_id == "task5_east" and not notes.get("task5_east_chest_opened"):
-                notes["task5_east_chest_opened"] = True
-            elif room_id == "task5_west" and not notes.get("task5_west_chest_opened"):
-                notes["task5_west_chest_opened"] = True
-            # button_pressed：上一步在按钮附近按 A 且有奖励
+            # chest_opened：开 chest 后 sprite 不消失，但 agent 必须在 chest 相邻 tile 上。
+            # 攻击怪物时 agent 在 monster 相邻 tile 上。用 chest_adjacent 且 not
+            # monster_adjacent 区分（各房间 chest/monster 相邻 tile 无交集，除西房间
+            # (2,5) 同时与 chest(2,6) 和 monster(2,4) 相邻，此时不标记以避免误判）。
+            chest_tile = self.detect_chest_tile(frame)
+            monster_tile = self.detect_monster_tile(frame)
+            pt = pixel_state.player_tile
+            chest_adjacent = (
+                chest_tile is not None
+                and pt is not None
+                and abs(chest_tile[0] - pt[0]) + abs(chest_tile[1] - pt[1]) == 1
+            )
+            monster_adjacent = (
+                monster_tile is not None
+                and pt is not None
+                and abs(monster_tile[0] - pt[0]) + abs(monster_tile[1] - pt[1]) == 1
+            )
+            if chest_adjacent and not monster_adjacent:
+                if room_id == "task5_start" and not notes.get("task5_start_chest_opened"):
+                    notes["task5_start_chest_opened"] = True
+                elif room_id == "task5_south" and not notes.get("task5_south_chest_opened"):
+                    notes["task5_south_chest_opened"] = True
+                elif room_id == "task5_east" and not notes.get("task5_east_chest_opened"):
+                    notes["task5_east_chest_opened"] = True
+                elif room_id == "task5_west" and not notes.get("task5_west_chest_opened"):
+                    notes["task5_west_chest_opened"] = True
+            # button_pressed：只有当 agent 在 button tile 上按 A 时才标记
+            # （开 chest 时 agent 不在 chest tile 上，以此区分）
             if not notes.get("task5_button_pressed"):
-                notes["task5_button_pressed"] = True
+                button_tile = self.detect_button_tile(frame)
+                if button_tile is not None and pixel_state.player_tile == button_tile:
+                    notes["task5_button_pressed"] = True
             # door_opened：上一步在出口按方向键且 last_reward > 0（此处 action==A 不覆盖）
 
         # monster_kill：上步有怪物 + 本步无怪物 + last_reward > 0
+        # 只在 task5_start 房间标记，避免其他房间的 patroller 暂时不可见时误标
         prev_monster = notes.get("task5_prev_monster_visible", False)
         curr_monster = pixel_state.monster_visible
-        if prev_monster and not curr_monster and reward_positive:
+        if prev_monster and not curr_monster and reward_positive and room_id == "task5_start":
             notes["task5_start_monster_cleared"] = True
         notes["task5_prev_monster_visible"] = curr_monster
 
@@ -1257,6 +1293,12 @@ class Policy:
         if stage == "done":
             return ACTION_NOOP
 
+        # button 是踩上去自动触发的（不需要 A），被踩到后从画面消失。
+        # 如果 stage=press_button 但 button 不可见，说明已被踩到。
+        if stage == "press_button" and self.detect_button_tile(frame) is None:
+            self.history.notes["task5_button_pressed"] = True
+            stage = self.task5_stage(inventory)
+
         blocked = self.build_blocked_tiles(frame, avoid_traps=True)
         player_px = self.detect_player_px(frame)
 
@@ -1299,7 +1341,7 @@ class Policy:
                 if not bool(self.history.notes.get("task5_east_monster_cleared", False)):
                     monster_tile = self.detect_monster_tile(frame)
                     if monster_tile is not None:
-                        return self.attack_monster(tile, monster_tile)
+                        return self.attack_monster(tile, monster_tile, blocked=blocked, player_px=player_px)
                     self.history.notes["task5_east_monster_cleared"] = True
                 chest = self.detect_chest_tile(frame)
                 if chest is not None:
@@ -1311,7 +1353,7 @@ class Policy:
                 if not bool(self.history.notes.get("task5_west_monster_cleared", False)):
                     monster_tile = self.detect_monster_tile(frame)
                     if monster_tile is not None:
-                        return self.attack_monster(tile, monster_tile)
+                        return self.attack_monster(tile, monster_tile, blocked=blocked, player_px=player_px)
                     self.history.notes["task5_west_monster_cleared"] = True
                 chest = self.detect_chest_tile(frame)
                 if chest is not None:

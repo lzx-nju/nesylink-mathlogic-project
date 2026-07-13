@@ -4,9 +4,9 @@
 
 - 项目名称：数理逻辑课程大作业
 - 仓库：`nesylink-mathlogic-project`
-- 当前阶段：spatial 变体修复与 robustness suite 验证
-- 更新时间：2026-07-11
-- 当前目标：task_1-4 original + spatial 全通过，task_5 导航 bug 待修
+- 当前阶段：完整 5 任务 robustness suite 验证
+- 更新时间：2026-07-13
+- 当前目标：task_1-4 original+spatial 100%，color 66.7%，task_5 修复后仍 0% 但里程碑全面改善
 
 ## 2. 当前里程碑
 
@@ -155,6 +155,7 @@
 | 2026-07-05 | `lean` | `student_agent/lean/*.lean` | 成功 | 6 个 Lean 文件逐文件编译通过 |
 | 2026-07-10 | `utils/evaluate_policy.py` + `--info-mode safe` | `task_1`-`task_5` | task_1-4 成功，task_5 失败 | safe 模式 10 seed 评测，task_5 agent_dead |
 | 2026-07-11 | `utils/evaluate_policy.py` + `--robustness-suite --num-envs 30` | `task_1`-`task_4` | 成功 | original 72/72 + spatial 36/36 全通过，color 0/12 预期失败 |
+| 2026-07-13 | `utils/evaluate_policy.py` + `--robustness-suite --num-envs 30` | `task_1`-`task_5` | task_1-4 成功，task_5 失败 | 完整 5 任务评测，task_1-4 original+spatial 100%，color 66.7%（dark/bright 通过），task_5 全部 agent_dead |
 
 ### 2026-07-10
 
@@ -171,6 +172,26 @@
 - 修复前 spatial 通过率：task_1 1/3、task_2 1/3、task_3 0/3；修复后全部 3/3。
 - 运行 robustness suite（`--num-envs 30`）：task_1-4 的 original + spatial 共 108 个 episode 全部通过，color 变体预期失败（策略基于精确 RGB 匹配）。
 - 更新 `eval_results.json` 与报告实验章节。
+
+### 2026-07-13
+
+- 合并组员推送的 color 变体适配（`normalize_obs` 预处理模块，对 dark/bright/inverted 施加逆变换）和 task_2-4 Lean 策略形式化改为 BFS 模式。
+- 运行完整 5 任务 robustness suite（`--num-envs 30`，共 150 个 episode）。
+- 评测结果：
+  - task_1-4 original 72/72 + spatial 36/36 = 108/108 全通过（100%）。
+  - task_1-4 color 8/12 通过（66.7%）：dark/bright 全通过，grayscale 有损不可逆仍失败。
+  - task_5 全部失败（original 0/18、spatial 0/9、color 0/3）：agent_dead。
+- 尝试修复 task_5 导航执行层（7 个 bug）：
+  - Bug 1：`navigate_to_exit` 像素对齐方向检查——south/north 只处理 dx==0 的相邻 tile，east/west 只处理 dy==0，避免地图边界卡死。
+  - Bug 2：`task5_button_pressed` 误标——只在 agent 在 button tile 上按 A 时标记。
+  - Bug 3：button 自动触发检测——button 踩上即触发（不需 A），在 `decide_task5` 中检测 button 不可见时自动标记。
+  - Bug 4：`task5_start_monster_cleared` 误标——添加 `room_id == "task5_start"` 条件。
+  - Bug 5：`detect_task5_room` east/west 墙体模式错误——更新为与实际房间布局匹配的独特墙位置。
+  - Bug 6：`task5_east_chest_opened` 误标——用 `chest_adjacent and not monster_adjacent` 区分开 chest 和攻击怪物。
+  - Bug 7：`attack_monster` 缺少 `blocked`/`player_px` 参数——task5_east/west 分支的 attack_monster 调用未传参，导致用简单 move_towards 被墙挡住。
+- 修复后 task_5 original 评测：success_rate 仍为 0.000，但 agent 平均存活 1083 步（修复前 400 步），累计正奖励 95.020（修复前 -21.650），全部里程碑 1.000（chest_opened/key_collected/gold_collected/agent_healed/button_pressed/room_changed/door_opened/monster_killed/exit_reached）。agent 成功完成 start→south→east 三个房间的完整任务链，仅在 west 房间因 hp 耗尽死亡。
+- 验证 task_1-4 不回归：robustness suite n=30 全部通过，original+spatial 100%，color 66.7%，与修复前完全一致。
+- 更新 `eval_results.json` 为完整 5 任务结果（含 task_5 修复后数据），更新 `main.tex` 实验章节。
 
 ## 9. 每日更新模板
 

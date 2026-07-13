@@ -919,17 +919,17 @@ Task 4 & \texttt{ApproachCertificate}（参数化于目标 Room，含 \texttt{No
 \begin{quote}
 \small
 \texttt{python utils/evaluate\_policy.py}\\
-\texttt{--tasks mathematical\_logic/task\_1 ... task\_4}\\
+\texttt{--tasks mathematical\_logic/task\_1 ... task\_5}\\
 \texttt{--task-policy <task>=student\_agent/baseline\_policy.py}\\
 \texttt{--robustness-suite --num-envs 30 --info-mode safe}
 \end{quote}
-运行环境为 Python 3.13 虚拟环境。本次报告记录的是 2026 年 7 月 11 日
-在本地工作区运行的 robustness suite 结果。
+运行环境为 Python 3.13 虚拟环境。本次报告记录的是 2026 年 7 月 13 日
+在本地工作区运行的完整 5 任务 robustness suite 结果。
 \begin{itemize}[leftmargin=2em]
   \item 测试任务：\texttt{mathematical\_logic/task\_1} 至
-  \texttt{mathematical\_logic/task\_4}（\texttt{task\_5} 代码未变，仍为 0\%，
-  见 \ref{sec:task5-status} 节）。
-  \item 运行次数：每个任务 30 个 episode（18 original + 9 spatial + 3 color）。
+  \texttt{mathematical\_logic/task\_5}（全部 5 个任务）。
+  \item 运行次数：每个任务 30 个 episode（18 original + 9 spatial + 3 color），
+  共 $5 \times 30 = 150$ 个 episode。
   \item 成功率统计方式：评测脚本输出的 \texttt{success\_rate}，按 eval\_stage 分组。
   \item 策略版本：\texttt{student\_agent/baseline\_policy.py}（已适配 \texttt{safe} 模式，
   含 spatial 变体修复与 2026-07-13 新增的 color 变体 \texttt{normalize\_obs} 预处理）。
@@ -947,19 +947,23 @@ Task 4 & \texttt{ApproachCertificate}（参数化于目标 Room，含 \texttt{No
 \midrule
 Task 1 & original & 18 & 1.000 & 270.0 & 127.250 & 全部通过 \\
 Task 1 & spatial & 9  & 1.000 & 175.0 & 128.183 & a/b/c 各 3 seed 全通过 \\
-Task 1 & color    & 3  & 0.667 & 270.0 & 83.167  & dark/bright 通过，grayscale 失败 \\
+Task 1 & color    & 3  & 0.667 & 346.7 & 83.167  & dark/bright 通过，grayscale 失败 \\
 \midrule
 Task 2 & original & 18 & 1.000 & 150.0 & 126.450 & 全部通过 \\
 Task 2 & spatial & 9  & 1.000 & 169.7 & 127.587 & a/b/c 各 3 seed 全通过 \\
-Task 2 & color    & 3  & 0.667 & 150.0 & 72.633  & dark/bright 通过，grayscale 失败 \\
+Task 2 & color    & 3  & 0.667 & 266.3 & 72.637  & dark/bright 通过，grayscale 失败 \\
 \midrule
 Task 3 & original & 18 & 1.000 & 535.0 & 159.650 & 全部通过 \\
 Task 3 & spatial & 9  & 1.000 & 597.0 & 158.997 & a/b/c 各 3 seed 全通过 \\
-Task 3 & color    & 3  & 0.667 & 535.0 & 101.433 & dark/bright 通过，grayscale 失败 \\
+Task 3 & color    & 3  & 0.667 & 856.7 & 101.433 & dark/bright 通过，grayscale 失败 \\
 \midrule
 Task 4 & original & 18 & 1.000 & 1007.0 & 253.930 & 全部通过 \\
 Task 4 & spatial & 9  & 1.000 & 1221.0 & 249.373 & a/b/c 各 3 seed 全通过 \\
-Task 4 & color    & 3  & 0.667 & 1007.0 & 162.620 & dark/bright 通过，grayscale 失败 \\
+Task 4 & color    & 3  & 0.667 & 1338.0 & 162.620 & dark/bright 通过，grayscale 失败 \\
+\midrule
+Task 5 & original & 18 & 0.000 & 1083.0 & 95.020 & agent\_dead，见 \ref{sec:task5-status} 节 \\
+Task 5 & spatial & 9  & 0.000 & 1000.0 & -20.000 & agent\_dead，房间检测失效 \\
+Task 5 & color    & 3  & 0.000 & 1055.3 & 56.680 & agent\_dead，dark/bright 里程碑 0.667 \\
 \bottomrule
 \end{tabular}
 \caption{Robustness suite 评测结果（\texttt{--num-envs 30}，\texttt{safe} 信息模式）。
@@ -987,9 +991,9 @@ spatial 列的 a/b/c 指布局变体 spatial\_a/spatial\_b/spatial\_c。}
 \subsection{结果分析}
 
 本次 robustness suite 评测在 \texttt{safe} 信息模式下运行
-（\texttt{info} 仅含 \texttt{last\_reward}、\texttt{inventory}、\texttt{task\_id}）。
-\texttt{task\_1} 至 \texttt{task\_4} 在 original 和 spatial 变体上全部成功
-（success\_rate = 1.000），共 72 个 original episode + 36 个 spatial episode
+（\texttt{info} 仅含 \texttt{last\_reward}、\texttt{inventory}、\texttt{task\_id}），
+共 150 个 episode。\texttt{task\_1} 至 \texttt{task\_4} 在 original 和 spatial 变体上
+全部成功（success\_rate = 1.000），共 72 个 original episode + 36 个 spatial episode
 全部通过。这说明策略的高层阶段机、BFS 路径规划与基于
 \texttt{inventory} diff + \texttt{last\_reward} 的事件推断逻辑在
 \texttt{safe} 模式下能稳定完成目标，且对布局扰动具有鲁棒性。
@@ -1012,19 +1016,32 @@ dark 和 bright 全部通过，grayscale 仍然失败。
 将 color 变体通过率从 0\% 提升至 66.7\%。
 grayscale 变体因颜色信息有损不可逆，仍无法通过（预期结果）。
 
+\texttt{task\_5} 在三个阶段均未通过（success\_rate = 0.000），
+详细分析见 \ref{sec:task5-status} 节。
+
 \subsubsection{Task 5 状态说明}
 \label{sec:task5-status}
 
-\texttt{task\_5} 当前 success\_rate = 0.000（代码未变，沿用 2026-07-10 的 10 seed 结果）。
-里程碑统计显示事件推断层工作正常：
-\texttt{chest\_opened}、\texttt{key\_collected}、\texttt{button\_pressed}、
-\texttt{monster\_killed}、\texttt{exit\_reached} 均为 1.000（10 seed 全部触发），
-说明四个宝箱开启、按钮按下、怪物击杀等高层事件均被正确识别并驱动阶段推进。
-失败原因是 \texttt{agent\_dead} = 1.000：BFS 导航与战斗的底层执行
-（像素对齐、怪物攻击节奏、\texttt{build\_blocked\_tiles} 墙体检测阈值）
-在 \texttt{task\_5} 的多房间复杂场景下仍存在 bug，导致 agent 在完成全部高层子目标后死亡。
-这属于 \texttt{task\_5} 导航执行层的已知问题，而非 \texttt{safe} 模式适配或
-事件推断逻辑的问题。
+\texttt{task\_5} 在本次 robustness suite 中三个阶段均未通过
+（original 0/18、spatial 0/9、color 0/3，success\_rate = 0.000）。
+original 阶段的里程碑统计显示事件推断层与多房间导航逻辑基本工作正常：
+\texttt{chest\_opened}、\texttt{key\_collected}、\texttt{gold\_collected}、
+\texttt{agent\_healed}、\texttt{button\_pressed}、\texttt{room\_changed}、
+\texttt{door\_opened}、\texttt{monster\_killed}、\texttt{exit\_reached}
+均为 1.000（18 seed 全部触发），说明 agent 成功完成 start 房间（开箱、按按钮、
+杀怪物）、south 房间（拿钥匙）、east 房间（杀怪物、开 heal 箱）的完整任务链，
+并成功换房 5 次（room\_changed 总计 90 次 = 5 次/episode $\times$ 18 episode）。
+agent 平均存活 1083 步、累计正奖励 95.020，远优于修复前（400 步、$-$21.650）。
+失败原因是 \texttt{agent\_dead} = 1.000：agent 进入 west 房间时 hp 已耗尽
+（east 房间 heal 箱仅恢复 1 hp，west 房间含 2 只怪物），被一击致死，
+\texttt{environment\_completed} 和 \texttt{world\_completed} 均为 0.000。
+spatial 阶段全部 \texttt{agent\_dead} 且所有里程碑为 0.000：
+spatial 变体修改了房间布局，\texttt{detect\_task5\_room} 的墙体模式匹配
+无法识别变换后的房间，agent 使用错误的阶段逻辑导致早期死亡。
+color 阶段 dark/bright 变体里程碑为 0.667（\texttt{normalize\_obs} 成功恢复
+原始帧），grayscale 变体因有损不可逆仍全部失败。
+这属于 \texttt{task\_5} 导航执行层（hp 管理、spatial 房间识别）的已知问题，
+而非 \texttt{safe} 模式适配或事件推断逻辑的问题。
 
 \subsubsection{颜色变体鲁棒性修复}
 \label{sec:color-variant-fix}
