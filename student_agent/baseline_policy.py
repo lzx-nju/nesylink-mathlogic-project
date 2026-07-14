@@ -1315,15 +1315,15 @@ class Policy:
                         return self.navigate_to_goal(tile, button, blocked, player_px=player_px, final_action=ACTION_A, walk_onto=True)
                 return self.navigate_to_exit(tile, "south", blocked, player_px=player_px)
 
-            if stage == "open_east_chest":
+            if stage in {"open_east_chest", "open_west_chest"}:
+                # 无论去 east 还是 west，都需要先清除 start room 的 chaser 以避免导航时受接触伤害。
                 if not bool(self.history.notes.get("task5_start_monster_cleared", False)):
                     monster_tile = self.detect_monster_tile(frame)
                     if monster_tile is not None:
-                        return self.attack_monster(tile, monster_tile)
+                        return self.attack_monster(tile, monster_tile, blocked=blocked, player_px=player_px)
                     self.history.notes["task5_start_monster_cleared"] = True
-                return self.navigate_to_exit(tile, "east", blocked, player_px=player_px)
-
-            if stage == "open_west_chest":
+                if stage == "open_east_chest":
+                    return self.navigate_to_exit(tile, "east", blocked, player_px=player_px)
                 return self.navigate_to_exit(tile, "west", blocked, player_px=player_px)
 
         if room_id == "task5_south":
@@ -1338,11 +1338,13 @@ class Policy:
 
         if room_id == "task5_east":
             if stage == "open_east_chest":
-                if not bool(self.history.notes.get("task5_east_monster_cleared", False)):
-                    monster_tile = self.detect_monster_tile(frame)
-                    if monster_tile is not None:
-                        return self.attack_monster(tile, monster_tile, blocked=blocked, player_px=player_px)
-                    self.history.notes["task5_east_monster_cleared"] = True
+                # 跳过 ambusher 战斗：ambusher 在 (7,5) ambush_range=2，chest 在 (7,1)。
+                # agent 从 (1,4) 进入走 row 1 到 chest，距离 ambusher ≥ 4 tiles 不会激活。
+                # ambusher 加入 blocked 以防意外接触；west 房间用 kill all 保证无接触伤害。
+                self.history.notes["task5_east_monster_cleared"] = True
+                monster_tile = self.detect_monster_tile(frame)
+                if monster_tile is not None:
+                    blocked = blocked | {monster_tile}
                 chest = self.detect_chest_tile(frame)
                 if chest is not None:
                     return self.navigate_to_goal(tile, chest, blocked, player_px=player_px, final_action=ACTION_A)
@@ -1350,11 +1352,18 @@ class Policy:
 
         if room_id == "task5_west":
             if stage == "open_west_chest":
+                # 杀全部怪物以消除导航至宝箱时的接触伤害。
+                # 注意：detect_monster_tile 返回所有怪物质心，多怪物时位置不准，
+                # 必须用 detect_closest_monster_tile 逐个击杀。
                 if not bool(self.history.notes.get("task5_west_monster_cleared", False)):
-                    monster_tile = self.detect_monster_tile(frame)
-                    if monster_tile is not None:
-                        return self.attack_monster(tile, monster_tile, blocked=blocked, player_px=player_px)
-                    self.history.notes["task5_west_monster_cleared"] = True
+                    all_monsters = self.detect_all_monster_tiles(frame)
+                    if len(all_monsters) == 0:
+                        self.history.notes["task5_west_monster_cleared"] = True
+                    else:
+                        monster_tile = self.detect_closest_monster_tile(frame, tile)
+                        if monster_tile is not None:
+                            return self.attack_monster(tile, monster_tile, blocked=blocked, player_px=player_px)
+                        self.history.notes["task5_west_monster_cleared"] = True
                 chest = self.detect_chest_tile(frame)
                 if chest is not None:
                     return self.navigate_to_goal(tile, chest, blocked, player_px=player_px, final_action=ACTION_A)
