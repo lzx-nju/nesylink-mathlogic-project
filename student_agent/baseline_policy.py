@@ -531,8 +531,11 @@ class Policy:
         west_walls = [(1, 2), (5, 5), (5, 6)]
         if all(self.tile_has_wall(frame, t) for t in west_walls):
             return "task5_west"
-        # Start room fallback: chest at (4,2) or button at (2,6).
-        if self.tile_has_chest(frame, (4, 2)) or self.tile_has_button(frame, (2, 6)):
+        # Start room (room_0_0) walls at (5,1), (5,2), (3,3), (4,3), (6,5).
+        # (3,3) 和 (6,5) 在 south/east/west 三个房间都不是墙，是 start 独有特征。
+        # 用墙体特征而非对象位置，确保 spatial 变体（对象移位、layout 不变）下仍可识别。
+        start_walls = [(3, 3), (6, 5)]
+        if all(self.tile_has_wall(frame, t) for t in start_walls):
             return "task5_start"
         return None
 
@@ -1330,10 +1333,11 @@ class Policy:
             if stage == "open_south_chest":
                 # South room's patroller is passive; ignore it and navigate to chest directly.
                 chest = self.detect_chest_tile(frame)
-                # Fallback: if chest detection failed, use the known chest position (8,5).
-                if chest is None:
-                    chest = (8, 5)
-                return self.navigate_to_goal(tile, chest, blocked, player_px=player_px, final_action=ACTION_A)
+                if chest is not None:
+                    return self.navigate_to_goal(tile, chest, blocked, player_px=player_px, final_action=ACTION_A)
+                # Chest not yet rendered; wait one frame instead of navigating to a
+                # hardcoded position that may be wrong under spatial variants.
+                return ACTION_NOOP
             return self.navigate_to_exit(tile, "north", blocked, player_px=player_px)
 
         if room_id == "task5_east":
