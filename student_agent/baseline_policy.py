@@ -298,10 +298,29 @@ class Policy:
             return "up"
         return self.history.facing
 
-    def attack_monster(self, tile: Tile, monster_tile: Tile, blocked: set[Tile] | None = None, player_px: tuple[float, float] | None = None) -> int:
+    def compute_no_attack_tiles(self, frame: np.ndarray) -> set[Tile]:
+        """Compute tiles where pressing A would trigger an NPC/chest/switch
+        interaction instead of attacking a monster. The engine's try_interaction
+        checks adjacency (not facing) and runs before combat, so standing on
+        these tiles makes attacks impossible."""
+        no_attack: set[Tile] = set()
+        for y in range(GRID_HEIGHT):
+            for x in range(GRID_WIDTH):
+                tile = (x, y)
+                if self.tile_has_npc(frame, tile) or self.tile_has_chest(frame, tile):
+                    for ddx, ddy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                        adj = (x + ddx, y + ddy)
+                        if self.in_bounds(adj):
+                            no_attack.add(adj)
+        return no_attack
+
+    def attack_monster(self, tile: Tile, monster_tile: Tile, blocked: set[Tile] | None = None, player_px: tuple[float, float] | None = None, no_attack_tiles: set[Tile] | None = None, diagonal_block: bool = True) -> int:
         # Attack a monster at monster_tile. When adjacent (distance=1), face the
         # monster and press A. When farther away, BFS to the closest adjacent
         # tile using the provided blocked set (if available) or an empty set.
+        # no_attack_tiles: tiles where pressing A triggers an NPC/chest interaction
+        # instead of attacking (engine checks adjacency before combat). The agent
+        # must avoid these as attack positions.
         px, py = tile
         mx, my = monster_tile
         dx = mx - px
@@ -311,20 +330,25 @@ class Policy:
             return ACTION_NOOP
 
         if manhattan == 1:
-            desired = self.facing_toward(dx, dy)
-            if self.history.facing == desired:
-                return ACTION_A
-            # Wrong facing: back off along the monster axis (away from monster)
-            # to re-approach on a straight line that sets the correct facing.
-            if desired == "right":
-                return ACTION_LEFT
-            if desired == "left":
-                return ACTION_RIGHT
-            if desired == "down":
-                return ACTION_UP
-            return ACTION_DOWN
+            # If standing on a tile where A triggers NPC/chest interaction,
+            # fall through to BFS to find a safe attack position.
+            if no_attack_tiles is not None and tile in no_attack_tiles:
+                pass  # fall through to BFS logic below
+            else:
+                desired = self.facing_toward(dx, dy)
+                if self.history.facing == desired:
+                    return ACTION_A
+                # Wrong facing: back off along the monster axis (away from monster)
+                # to re-approach on a straight line that sets the correct facing.
+                if desired == "right":
+                    return ACTION_LEFT
+                if desired == "left":
+                    return ACTION_RIGHT
+                if desired == "down":
+                    return ACTION_UP
+                return ACTION_DOWN
 
-        # manhattan >= 2: BFS to the closest valid adjacent tile.
+        # manhattan >= 2 (or manhattan == 1 on unsafe tile): BFS to closest valid adjacent tile.
         candidates = (
             ((mx - 1, my), False),
             ((mx + 1, my), False),
@@ -332,6 +356,12 @@ class Policy:
             ((mx, my + 1), True),
         )
         valid = [c for c in candidates if self.in_bounds(c[0])]
+        # 排除 blocked 中的 tile（如墙），避免选不可达的 target 导致 BFS 空转
+        if blocked is not None:
+            valid = [c for c in valid if c[0] not in blocked]
+        # 排除 no_attack_tiles 中的 tile（NPC/chest 相邻格），避免按 A 被交互拦截
+        if no_attack_tiles is not None:
+            valid = [c for c in valid if c[0] not in no_attack_tiles]
         if not valid:
             return ACTION_NOOP
 
@@ -340,10 +370,27 @@ class Policy:
             return abs(ax - px) + abs(ay - py)
 
         target, x_first = min(valid, key=dist_to)
-        # Use BFS with pixel alignment if blocked set is provided.
-        if blocked is not None and player_px is not None:
-            return self.follow_bfs_aligned(player_px, tile, {target}, blocked, final_action=ACTION_A)
+        # Block diagonal tiles around the monster to force a straight-line
+        # approach. When the agent passes through a tile diagonally adjacent to
+        # the monster, the chaser's 0.5px/step movement toward the agent can
+        # cause AABB sprite overlap (contact damage). Blocking diagonals forces
+        # BFS to route the agent along the same row/column as the monster,
+        # minimizing overlap risk.
         if blocked is not None:
+            approach_blocked = set(blocked)
+            if diagonal_block:
+                for ddx, ddy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
+                    dt = (mx + ddx, my + ddy)
+                    if self.in_bounds(dt) and dt != target:
+                        approach_blocked.add(dt)
+            # Verify target is reachable with diagonal blocks; fall back if not.
+            if self.bfs_path(tile, {target}, approach_blocked) is not None:
+                if player_px is not None:
+                    return self.follow_bfs_aligned(player_px, tile, {target}, approach_blocked, final_action=ACTION_A)
+                return self.follow_bfs(tile, {target}, approach_blocked, x_first=x_first, final_action=ACTION_A)
+            # Fallback: target unreachable with diagonal blocks, use original set.
+            if player_px is not None:
+                return self.follow_bfs_aligned(player_px, tile, {target}, blocked, final_action=ACTION_A)
             return self.follow_bfs(tile, {target}, blocked, x_first=x_first, final_action=ACTION_A)
         # Fallback to simple move_towards when no blocked set is provided.
         return self.move_towards(tile, target, x_first=x_first)
@@ -1241,10 +1288,13 @@ class Policy:
             # door_opened：上一步在出口按方向键且 last_reward > 0（此处 action==A 不覆盖）
 
         # monster_kill：上步有怪物 + 本步无怪物 + last_reward > 0
-        # 只在 task5_start 房间标记，避免其他房间的 patroller 暂时不可见时误标
+        # 只在 task5_start 房间且上步也在 task5_start 时标记，避免跨房间切换时
+        # （如从 south 返回 start）因怪物未渲染而误判 chaser 已清除。
+        prev_room = notes.get("task5_prev_room")
         prev_monster = notes.get("task5_prev_monster_visible", False)
         curr_monster = pixel_state.monster_visible
-        if prev_monster and not curr_monster and reward_positive and room_id == "task5_start":
+        if (prev_monster and not curr_monster and reward_positive
+                and room_id == "task5_start" and prev_room == "task5_start"):
             notes["task5_start_monster_cleared"] = True
         notes["task5_prev_monster_visible"] = curr_monster
 
@@ -1254,7 +1304,6 @@ class Policy:
             notes["task5_start_monster_hits"] = hits + 1
 
         # door_opened / east_gate：last_reward > 0 且房间发生变化时标记
-        prev_room = notes.get("task5_prev_room")
         if prev_room is not None and room_id is not None and prev_room != room_id and reward_positive:
             notes["task5_east_gate_opened"] = True
         if room_id is not None:
@@ -1304,6 +1353,7 @@ class Policy:
 
         blocked = self.build_blocked_tiles(frame, avoid_traps=True)
         player_px = self.detect_player_px(frame)
+        no_attack_tiles = self.compute_no_attack_tiles(frame)
 
         if room_id == "task5_start":
             if stage == "open_start_chest":
@@ -1319,11 +1369,11 @@ class Policy:
                 return self.navigate_to_exit(tile, "south", blocked, player_px=player_px)
 
             if stage in {"open_east_chest", "open_west_chest"}:
-                # 无论去 east 还是 west，都需要先清除 start room 的 chaser 以避免导航时受接触伤害。
+                # 先清除 start room 的 chaser，避免导航至 east/west exit 时受接触伤害。
                 if not bool(self.history.notes.get("task5_start_monster_cleared", False)):
                     monster_tile = self.detect_monster_tile(frame)
                     if monster_tile is not None:
-                        return self.attack_monster(tile, monster_tile, blocked=blocked, player_px=player_px)
+                        return self.attack_monster(tile, monster_tile, blocked=blocked, player_px=player_px, no_attack_tiles=no_attack_tiles)
                     self.history.notes["task5_start_monster_cleared"] = True
                 if stage == "open_east_chest":
                     return self.navigate_to_exit(tile, "east", blocked, player_px=player_px)
@@ -1366,7 +1416,7 @@ class Policy:
                     else:
                         monster_tile = self.detect_closest_monster_tile(frame, tile)
                         if monster_tile is not None:
-                            return self.attack_monster(tile, monster_tile, blocked=blocked, player_px=player_px)
+                            return self.attack_monster(tile, monster_tile, blocked=blocked, player_px=player_px, no_attack_tiles=no_attack_tiles, diagonal_block=False)
                         self.history.notes["task5_west_monster_cleared"] = True
                 chest = self.detect_chest_tile(frame)
                 if chest is not None:
