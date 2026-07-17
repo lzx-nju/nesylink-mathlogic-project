@@ -8,6 +8,7 @@ import numpy as np
 
 from nesylink.core.constants import (
     ACTION_A,
+    ACTION_B,
     ACTION_DOWN,
     ACTION_LEFT,
     ACTION_NOOP,
@@ -93,11 +94,15 @@ class Policy:
 
     def __init__(self) -> None:
         self.history = AgentHistory()
+        self._component_frame: np.ndarray | None = None
+        self._component_cache: dict[Color, list[tuple[np.ndarray, np.ndarray]]] = {}
 
     def reset(self) -> None:
         # 新版评测脚本无参数调用 reset()。task_id 改由 info["task_id"] 在
         # act() 中获取（仅 --task-policy 模式提供）。
         self.history = AgentHistory()
+        self._component_frame = None
+        self._component_cache = {}
 
     def normalize_obs(self, frame: np.ndarray) -> np.ndarray:
         """检测 color 变体并尽可能恢复 default 外观。
@@ -170,12 +175,24 @@ class Policy:
         """根据检测到的 color 变体，将参考色前向变换到帧空间。
 
         dark/inverted 已由 normalize_obs 逆变换恢复，参考色不变；
-        bright 未逆变换（clip 不可逆），需将参考色前向变换 ×1.35 clip 后匹配。
+        bright/grayscale 未逆变换（有损不可逆），需将参考色前向变换后匹配。
         """
         variant = self.history.notes.get("_obs_variant", "default")
         if variant == "bright":
             return cast(Color, tuple(min(255, int(c * 1.35)) for c in color))
+        if variant == "grayscale":
+            gray = int(sum(color) / 3)
+            return (gray, gray, gray)
+        if variant == "high_contrast":
+            return cast(Color, tuple(255 if c > 127 else 0 for c in color))
         return color
+
+    def _color_tolerance(self) -> int:
+        # Grayscale/high-contrast are produced by exact integer transforms.
+        # Using the inverse-transform tolerance here merges nearby palette
+        # entries (for example grayscale wall 106 and floor shadow 108).
+        variant = self.history.notes.get("_obs_variant", "default")
+        return 0 if variant in {"grayscale", "high_contrast"} else COLOR_TOL
 
     def extract_inventory(self, info: dict[str, Any]) -> dict[str, Any]:
         inventory = info.get("inventory", {})
@@ -236,6 +253,9 @@ class Policy:
         return 0 <= x < GRID_WIDTH and 0 <= y < GRID_HEIGHT
 
     def detect_monster_tile(self, frame: np.ndarray) -> Tile | None:
+        if self.history.notes.get("_obs_variant") == "high_contrast":
+            monsters = self._high_contrast_monster_tiles(frame)
+            return monsters[0] if monsters else None
         if not self.has_monster(frame):
             return None
         x_values: list[np.ndarray] = []
@@ -243,7 +263,7 @@ class Policy:
         for color in MONSTER_COLORS:
             eff = self._effective_color(color)
             diff = np.abs(frame.astype(np.int16) - np.array(eff, dtype=np.int16))
-            mask = np.all(diff <= COLOR_TOL, axis=2)
+            mask = np.all(diff <= self._color_tolerance(), axis=2)
             ys, xs = np.nonzero(mask)
             if len(xs) > 0:
                 x_values.append(xs)
@@ -260,13 +280,15 @@ class Policy:
 
     def detect_all_monster_tiles(self, frame: np.ndarray) -> list[Tile]:
         # Detect all distinct monster tiles by clustering pixels.
+        if self.history.notes.get("_obs_variant") == "high_contrast":
+            return self._high_contrast_monster_tiles(frame)
         if not self.has_monster(frame):
             return []
         tiles: set[Tile] = set()
         for color in MONSTER_COLORS:
             eff = self._effective_color(color)
             diff = np.abs(frame.astype(np.int16) - np.array(eff, dtype=np.int16))
-            mask = np.all(diff <= COLOR_TOL, axis=2)
+            mask = np.all(diff <= self._color_tolerance(), axis=2)
             ys, xs = np.nonzero(mask)
             for x, y in zip(xs, ys):
                 tile = (min(GRID_WIDTH - 1, x // TILE_SIZE), min(GRID_HEIGHT - 1, y // TILE_SIZE))
@@ -278,9 +300,15 @@ class Policy:
         if not monsters:
             return None
         ax, ay = agent_tile
+        # A moving 16 px monster can straddle a tile boundary, so its colored
+        # pixels may cover both the player's tile and an adjacent tile.  The
+        # same-tile fragment is not a usable sword target; prefer a visible
+        # non-player fragment whenever one exists.
+        non_player_tiles = [monster for monster in monsters if monster != agent_tile]
+        candidates = non_player_tiles or monsters
         best = None
         best_dist = 999
-        for mx, my in monsters:
+        for mx, my in candidates:
             dist = abs(mx - ax) + abs(my - ay)
             if dist < best_dist:
                 best = (mx, my)
@@ -404,22 +432,126 @@ class Policy:
         # 容差匹配（±COLOR_TOL）：兼容 normalize_obs 逆变换后 uint8 截断的 ±1 误差。
         eff = self._effective_color(color)
         diff = np.abs(area.astype(np.int16) - np.array(eff, dtype=np.int16))
-        return int(np.count_nonzero(np.all(diff <= COLOR_TOL, axis=2)))
+        return int(np.count_nonzero(np.all(diff <= self._color_tolerance(), axis=2)))
 
     def count_any_color(self, frame: np.ndarray, colors: tuple[Color, ...], tile: Tile | None = None) -> int:
         return sum(self.count_color(frame, color, tile) for color in colors)
+
+    def _color_components(self, frame: np.ndarray, color: Color) -> list[tuple[np.ndarray, np.ndarray]]:
+        """Return 8-connected components for one effective map color."""
+        if self._component_frame is not frame:
+            self._component_frame = frame
+            self._component_cache = {}
+        eff = self._effective_color(color)
+        cached = self._component_cache.get(eff)
+        if cached is not None:
+            return cached
+
+        map_area = frame[: GRID_HEIGHT * TILE_SIZE]
+        diff = np.abs(map_area.astype(np.int16) - np.array(eff, dtype=np.int16))
+        mask = np.all(diff <= self._color_tolerance(), axis=2)
+        remaining = {(int(y), int(x)) for y, x in np.argwhere(mask)}
+        components: list[tuple[np.ndarray, np.ndarray]] = []
+        while remaining:
+            start = remaining.pop()
+            queue = deque([start])
+            points = [start]
+            while queue:
+                y, x = queue.popleft()
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        if dx == 0 and dy == 0:
+                            continue
+                        neighbor = (y + dy, x + dx)
+                        if neighbor in remaining:
+                            remaining.remove(neighbor)
+                            queue.append(neighbor)
+                            points.append(neighbor)
+            ys = np.fromiter((point[0] for point in points), dtype=np.int16)
+            xs = np.fromiter((point[1] for point in points), dtype=np.int16)
+            components.append((ys, xs))
+        self._component_cache[eff] = components
+        return components
+
+    def _high_contrast_monster_tiles(self, frame: np.ndarray) -> list[Tile]:
+        """Recover monster centers from binary-color body components."""
+        tiles: set[Tile] = set()
+        for color in MONSTER_COLORS:
+            for ys, xs in self._color_components(frame, color):
+                count = len(xs)
+                width = int(xs.max() - xs.min() + 1)
+                height = int(ys.max() - ys.min() + 1)
+                if not (20 <= count <= 90 and 6 <= width <= 13 and 6 <= height <= 11):
+                    continue
+                center_x = (int(xs.min()) + int(xs.max())) / 2 + 1
+                center_y = (int(ys.min()) + int(ys.max())) / 2 + 2
+                tile = (
+                    min(GRID_WIDTH - 1, max(0, int(center_x // TILE_SIZE))),
+                    min(GRID_HEIGHT - 1, max(0, int(center_y // TILE_SIZE))),
+                )
+                if tile in {exit_tile for pair in EXIT_DIRECTION_TILES.values() for exit_tile in pair}:
+                    continue
+                if self.tile_has_wall(frame, tile) or self.tile_has_chest(frame, tile) or self.tile_has_npc(frame, tile):
+                    continue
+                tiles.add(tile)
+        return list(tiles)
 
     def detect_player_px(self, frame: np.ndarray) -> tuple[int, int] | None:
         # The visible green tunic starts a few pixels inside the sprite. Recover
         # the sprite's true top-left pixel position so pixel-aligned navigation
         # can avoid clipping walls when squeezing through 1-tile gaps.
+        if self.history.notes.get("_obs_variant") == "high_contrast":
+            green = self._effective_color(PLAYER_COLORS[0])
+            components = self._color_components(frame, green)
+            groups: list[list[int]] = []
+            ungrouped = set(range(len(components)))
+            while ungrouped:
+                seed = ungrouped.pop()
+                group = [seed]
+                queue = deque([seed])
+                while queue:
+                    current = queue.popleft()
+                    current_ys, current_xs = components[current]
+                    for other in list(ungrouped):
+                        other_ys, other_xs = components[other]
+                        x_gap = max(
+                            0,
+                            max(int(current_xs.min()), int(other_xs.min()))
+                            - min(int(current_xs.max()), int(other_xs.max()))
+                            - 1,
+                        )
+                        y_gap = max(
+                            0,
+                            max(int(current_ys.min()), int(other_ys.min()))
+                            - min(int(current_ys.max()), int(other_ys.max()))
+                            - 1,
+                        )
+                        if x_gap <= 4 and y_gap <= 4:
+                            ungrouped.remove(other)
+                            group.append(other)
+                            queue.append(other)
+                groups.append(group)
+
+            candidates: list[tuple[np.ndarray, np.ndarray]] = []
+            for group in groups:
+                ys = np.concatenate([components[index][0] for index in group])
+                xs = np.concatenate([components[index][1] for index in group])
+                width = int(xs.max() - xs.min() + 1)
+                height = int(ys.max() - ys.min() + 1)
+                if len(xs) >= 30 and 4 <= width <= 20 and 8 <= height <= 24:
+                    candidates.append((ys, xs))
+            if not candidates:
+                return None
+            ys, xs = max(candidates, key=lambda component: len(component[1]))
+            return (max(0, int(xs.min()) - 4), max(0, int(ys.min()) - 2))
+
         x_values: list[np.ndarray] = []
         y_values: list[np.ndarray] = []
         for color in PLAYER_COLORS:
             # 容差匹配（±COLOR_TOL）：兼容 color 变体逆变换后的截断误差。
             eff = self._effective_color(color)
             diff = np.abs(frame.astype(np.int16) - np.array(eff, dtype=np.int16))
-            mask = np.all(diff <= COLOR_TOL, axis=2)
+            mask = np.all(diff <= self._color_tolerance(), axis=2)
             ys, xs = np.nonzero(mask)
             if len(xs) > 0:
                 x_values.append(xs)
@@ -445,23 +577,59 @@ class Policy:
         return (min(max_x, center_x // TILE_SIZE), min(max_y, center_y // TILE_SIZE))
 
     def tile_has_chest(self, frame: np.ndarray, tile: Tile) -> bool:
+        if self.history.notes.get("_obs_variant") == "high_contrast":
+            x, y = tile
+            area = frame[y * TILE_SIZE : (y + 1) * TILE_SIZE, x * TILE_SIZE : (x + 1) * TILE_SIZE]
+            red = np.all(area == np.array((255, 0, 0), dtype=np.uint8), axis=2)
+            yellow = np.all(area == np.array((255, 255, 0), dtype=np.uint8), axis=2)
+            band_pixels = max(
+                int(np.count_nonzero(yellow[4:7, 2:14])),
+                int(np.count_nonzero(yellow[2:4, 3:13])),
+            )
+            return 30 <= int(np.count_nonzero(red)) < 100 and band_pixels >= 15
         return self.count_color(frame, CHEST_WOOD, tile) >= 25
 
     def tile_has_npc(self, frame: np.ndarray, tile: Tile) -> bool:
+        if self.history.notes.get("_obs_variant") == "high_contrast":
+            if tile in {exit_tile for pair in EXIT_DIRECTION_TILES.values() for exit_tile in pair}:
+                return False
+            x, y = tile
+            area = frame[y * TILE_SIZE : (y + 1) * TILE_SIZE, x * TILE_SIZE : (x + 1) * TILE_SIZE]
+            yellow = np.all(area == np.array((255, 255, 0), dtype=np.uint8), axis=2)
+            return int(np.count_nonzero(yellow[4:12, 5:11])) >= 40 and not self.tile_has_chest(frame, tile)
         return self.count_color(frame, NPC_COLOR, tile) >= 20
 
     def tile_has_switch(self, frame: np.ndarray, tile: Tile) -> bool:
+        if self.history.notes.get("_obs_variant") == "high_contrast":
+            x, y = tile
+            area = frame[y * TILE_SIZE : (y + 1) * TILE_SIZE, x * TILE_SIZE : (x + 1) * TILE_SIZE]
+            red = np.all(area == np.array((255, 0, 0), dtype=np.uint8), axis=2)
+            yellow = np.all(area == np.array((255, 255, 0), dtype=np.uint8), axis=2)
+            return max(int(np.count_nonzero(red[9, 3:13])), int(np.count_nonzero(yellow[9, 3:13]))) >= 9 and not self.tile_has_chest(frame, tile)
         switch_pixels = self.count_color(frame, SWITCH_BODY, tile) + self.count_color(frame, SWITCH_DOWN, tile)
         return switch_pixels >= 20 and not self.tile_has_chest(frame, tile)
 
     def tile_has_button(self, frame: np.ndarray, tile: Tile) -> bool:
+        if self.history.notes.get("_obs_variant") == "high_contrast":
+            x, y = tile
+            area = frame[y * TILE_SIZE : (y + 1) * TILE_SIZE, x * TILE_SIZE : (x + 1) * TILE_SIZE]
+            green = np.all(area == np.array((0, 255, 0), dtype=np.uint8), axis=2)
+            return int(np.count_nonzero(green[6:10, 5:11])) >= 20
         button_pixels = self.count_color(frame, BUTTON_UP, tile) + self.count_color(frame, BUTTON_DOWN_COLOR, tile)
         return button_pixels >= 20 and not self.tile_has_chest(frame, tile)
 
     def tile_has_wall(self, frame: np.ndarray, tile: Tile) -> bool:
+        if self.history.notes.get("_obs_variant") == "high_contrast":
+            magenta = self.count_color(frame, (255, 86, 146), tile)
+            # A wall tile has 28 magenta highlight pixels; a normal exit frame
+            # has 38 (32 when partly covered by the player). Keep the upper
+            # bound so exits remain traversable.
+            return 20 <= magenta < 30
         return self.count_color(frame, WALL_COLOR, tile) >= 80
 
     def tile_has_trap(self, frame: np.ndarray, tile: Tile) -> bool:
+        if self.history.notes.get("_obs_variant") == "high_contrast":
+            return self.count_color(frame, (255, 255, 255), tile) >= 8
         metal = self.count_color(frame, TRAP_SPIKE_METAL, tile)
         shade = self.count_color(frame, TRAP_SPIKE_SHADE, tile)
         return metal + shade >= 15
@@ -474,6 +642,8 @@ class Policy:
         return black >= 180 and bridge < 25
 
     def has_monster(self, frame: np.ndarray) -> bool:
+        if self.history.notes.get("_obs_variant") == "high_contrast":
+            return bool(self._high_contrast_monster_tiles(frame))
         return self.count_any_color(frame, MONSTER_COLORS) >= 20
 
     def detect_chest_tile(self, frame: np.ndarray) -> Tile | None:
@@ -504,7 +674,7 @@ class Policy:
     def build_blocked_tiles(self, frame: np.ndarray, *, avoid_traps: bool) -> set[Tile]:
         # Scan the visible grid for non-walkable tiles: walls, abyss (always
         # blocked — bridge tiles overlay the abyss so they are NOT flagged),
-        # spike traps (when requested), and chests (always blocking).
+        # spike traps (when requested), chests, and NPCs (always blocking).
         blocked: set[Tile] = set()
         for y in range(GRID_HEIGHT):
             for x in range(GRID_WIDTH):
@@ -516,6 +686,8 @@ class Policy:
                 elif avoid_traps and self.tile_has_trap(frame, tile):
                     blocked.add(tile)
                 elif self.tile_has_chest(frame, tile):
+                    blocked.add(tile)
+                elif self.tile_has_npc(frame, tile):
                     blocked.add(tile)
         return blocked
 
@@ -548,10 +720,20 @@ class Policy:
         return state
 
     def detect_task4_room(self, frame: np.ndarray) -> str | None:
-        if self.count_color(frame, ABYSS_COLOR) >= 600 or self.count_color(frame, BRIDGE_COLOR) >= 200:
+        # The center hub is the only room with a large abyss field. Counting
+        # whole-frame bridge-color pixels is unsound under grayscale/high
+        # contrast because bridge wood collides with floor shadows or walls.
+        abyss_tiles = sum(
+            self.tile_has_abyss(frame, (x, y))
+            for y in range(GRID_HEIGHT)
+            for x in range(GRID_WIDTH)
+        )
+        if abyss_tiles >= 8:
             return "center"
-        top_middle_open = not self.tile_has_wall(frame, (4, 0)) and not self.tile_has_wall(frame, (5, 0))
-        bottom_middle_open = not self.tile_has_wall(frame, (4, 7)) and not self.tile_has_wall(frame, (5, 7))
+        # Exits are two tiles wide. The player can obscure one frame tile while
+        # crossing, so one visibly open tile is sufficient.
+        top_middle_open = not self.tile_has_wall(frame, (4, 0)) or not self.tile_has_wall(frame, (5, 0))
+        bottom_middle_open = not self.tile_has_wall(frame, (4, 7)) or not self.tile_has_wall(frame, (5, 7))
         if top_middle_open and not bottom_middle_open:
             return "south"
         if bottom_middle_open and not top_middle_open:
@@ -1146,6 +1328,15 @@ class Policy:
         # direction action to transition. Uses pixel-alignment when available.
         exit_goals = set(EXIT_DIRECTION_TILES[direction])
         exit_action = EXIT_DIRECTION_ACTION[direction]
+        # Boundary exit tiles are walkable, but entering one can immediately
+        # change rooms. Exclude every non-target exit so BFS cannot use another
+        # room transition as a shortcut to the requested exit.
+        route_blocked = blocked | {
+            tile
+            for other_direction, tiles in EXIT_DIRECTION_TILES.items()
+            if other_direction != direction
+            for tile in tiles
+        }
         # 当 agent 已在 exit tile 旁边时，先做严格像素对齐再触发 exit，
         # 避免 sprite 越过 tile 边界撞到相邻墙（spatial_c 的 west east_exit）。
         # 只处理与 exit 方向一致的相邻位置（如 south 方向只处理 agent 在
@@ -1177,8 +1368,8 @@ class Policy:
                         if px > col_left:
                             return ACTION_LEFT
                     return exit_action
-            return self.follow_bfs_aligned(player_px, tile, exit_goals, blocked, final_action=exit_action)
-        return self.follow_bfs(tile, exit_goals, blocked, x_first=True, final_action=exit_action)
+            return self.follow_bfs_aligned(player_px, tile, exit_goals, route_blocked, final_action=exit_action)
+        return self.follow_bfs(tile, exit_goals, route_blocked, x_first=True, final_action=exit_action)
 
     def probe_hidden_chest(
         self,
@@ -1354,6 +1545,11 @@ class Policy:
         blocked = self.build_blocked_tiles(frame, avoid_traps=True)
         player_px = self.detect_player_px(frame)
         no_attack_tiles = self.compute_no_attack_tiles(frame)
+        combat_blocked = blocked | {
+            exit_tile
+            for exit_tiles in EXIT_DIRECTION_TILES.values()
+            for exit_tile in exit_tiles
+        }
 
         if room_id == "task5_start":
             if stage == "open_start_chest":
@@ -1373,10 +1569,27 @@ class Policy:
                 if not bool(self.history.notes.get("task5_start_monster_cleared", False)):
                     monster_tile = self.detect_monster_tile(frame)
                     if monster_tile is not None:
-                        return self.attack_monster(tile, monster_tile, blocked=blocked, player_px=player_px, no_attack_tiles=no_attack_tiles)
+                        return self.attack_monster(
+                            tile,
+                            monster_tile,
+                            blocked=combat_blocked,
+                            player_px=player_px,
+                            no_attack_tiles=no_attack_tiles,
+                        )
                     self.history.notes["task5_start_monster_cleared"] = True
                 if stage == "open_east_chest":
                     return self.navigate_to_exit(tile, "east", blocked, player_px=player_px)
+                if (
+                    tile in EXIT_DIRECTION_TILES["west"]
+                    and player_px is not None
+                    and player_px[0] <= 3.5
+                    and not bool(self.history.notes.get("task5_west_exit_shielded", False))
+                ):
+                    # The spatial_c west-room ambusher starts next to the entry
+                    # spawn. Raise the shield at the room boundary so
+                    # its six-tick active window covers the unavoidable contact.
+                    self.history.notes["task5_west_exit_shielded"] = True
+                    return ACTION_B
                 return self.navigate_to_exit(tile, "west", blocked, player_px=player_px)
 
         if room_id == "task5_south":
@@ -1416,7 +1629,14 @@ class Policy:
                     else:
                         monster_tile = self.detect_closest_monster_tile(frame, tile)
                         if monster_tile is not None:
-                            return self.attack_monster(tile, monster_tile, blocked=blocked, player_px=player_px, no_attack_tiles=no_attack_tiles, diagonal_block=False)
+                            return self.attack_monster(
+                                tile,
+                                monster_tile,
+                                blocked=combat_blocked,
+                                player_px=player_px,
+                                no_attack_tiles=no_attack_tiles,
+                                diagonal_block=False,
+                            )
                         self.history.notes["task5_west_monster_cleared"] = True
                 chest = self.detect_chest_tile(frame)
                 if chest is not None:

@@ -789,9 +789,7 @@ theorem openChest_north_preserves_eastChestOpened
 theorem openChest_east_preserves_guardianAlive
     {s : EnvState} (hRoom : s.room = Room.east) (hChest : s.eastChestOpened = false) :
     (step s Action.openChest).guardianAlive = s.guardianAlive := by
-  have hNorth : ¬(s.room = Room.north ∧ s.northChestOpened = false) := by
-    intro h; rw [hRoom] at h; simp at h
-  simp [step, hRoom, hChest, hNorth]
+  simp [step, hRoom, hChest]
 
 /-! ### Baseline-aligned symbolic policy (BFS certificate mode) -/
 

@@ -4,9 +4,9 @@
 
 - 项目名称：数理逻辑课程大作业
 - 仓库：`nesylink-mathlogic-project`
-- 当前阶段：完整 5 任务 robustness suite 验证
-- 更新时间：2026-07-13
-- 当前目标：task_1-4 original+spatial 100%，color 66.7%，task_5 修复后仍 0% 但里程碑全面改善
+- 当前阶段：最终封版与提交前检查
+- 更新时间：2026-07-17
+- 当前目标：五任务 original/spatial/color 全部通过，Task 5 最终 baseline 形式化完成
 
 ## 2. 当前里程碑
 
@@ -16,21 +16,21 @@
 | 建立项目管理文档 | 已完成 | Day 1 | 已创建总计划、进度跟踪、记忆清单 |
 | 建立实验报告框架 | 已完成 | Day 1 | 已创建 TeX 报告骨架 |
 | 跑通环境与示例策略 | 已完成 | Day 1 | 已安装依赖、跑通示例并在自有 baseline 中覆盖前四关 |
-| 冻结统一 Agent 接口 | 进行中 | Day 2 | 已有接口草案和 baseline 骨架 |
+| 冻结统一 Agent 接口 | 已完成 | Day 2 | `--task-policy` + `safe` 模式接口已验证 |
 | 完成最小可用视觉/策略链路 | 已完成 | Day 3 | `task_3` / `task_4` / `task_5` 已接入像素感知 baseline |
-| 完成第一批 Lean 定义与证明 | 进行中 | Day 4 | 当前 Lean 文件已通过逐文件编译检查 |
-| 统一实验结果并写报告主体 | 未开始 | Day 6 | 待推进 |
-| 最终封版与交叉检查 | 未开始 | Day 7 | 待推进 |
+| 完成 Lean 定义与证明 | 已完成 | Day 4 | 7 个 Lean 文件通过，Task 5 已与最终 baseline 对齐 |
+| 统一实验结果并写报告主体 | 已完成 | Day 6 | 最终实验数据与证明内容已同步到报告 |
+| 最终封版与交叉检查 | 进行中 | Day 7 | 待检查 PDF 后由组长提交 |
 
 ## 3. 工作流状态
 
 | 工作流 | 当前状态 | 负责人 | 下一步 |
 |---|---|---|---|
-| 环境与评测 | 进行中 | 待定 | 补截图并整理 `task_1`-`task_5` 的最终评测记录 |
-| 视觉与状态抽取 | 进行中 | 待定 | 已覆盖玩家、房间、宝箱、开关、桥和怪物的基础像素识别 |
-| 策略与规划 | 进行中 | 待定 | 基于已跑通 baseline 整理报告叙述并检查提交接口 |
-| Lean 形式化与证明 | 进行中 | 待定 | 继续明确证明边界与定理目标 |
-| 实验与报告 | 进行中 | 组长 | 累积实验记录与截图 |
+| 环境与评测 | 已完成 | 小组 | robustness 50/50，六颜色矩阵 30/30 |
+| 视觉与状态抽取 | 已完成 | 小组 | grayscale/high_contrast 与空间扰动均已覆盖 |
+| 策略与规划 | 已完成 | 小组 | 五任务统一 baseline，Task 5 spatial_c 已通过 |
+| Lean 形式化与证明 | 已完成 | 小组 | 环境、策略、统一框架及 Task 5 细化证明均通过 |
+| 实验与报告 | 进行中 | 组长 | 最终 PDF 检查与提交 |
 
 ## 4. 今日重点
 
@@ -38,31 +38,28 @@
 - [x] 规划一周项目步骤
 - [x] 创建进度与记忆文档
 - [x] 创建实验报告 TeX 骨架
-- [ ] 确认小组成员方向选择
+- [x] 确认小组成员方向选择
 - [x] 跑通本地环境与示例 Agent
 - [x] 记录第一批实验结果
-- [ ] 补第一批截图和任务分析表
+- [x] 补任务分析与最终实验记录
 
 ## 5. 待办清单
 
 ### 高优先级
 
-- 确认五人分工并记录负责人
-- 补充记录 `task_1` / `task_2` / `task_3` / `task_4` 的结果细节与截图
-- 明确最终提交 Agent 的接口
-- 整理 `task_5` baseline 的路线、阶段记忆和像素对齐说明
-- 选定 Lean 首批证明目标
+- 编译并检查最终报告 PDF
+- 由组长检查 `git diff` 后执行 add / commit / push
+- 可选：保留 Lean 与 evaluation 成功终端截图作为运行材料
 
 ### 中优先级
 
-- 梳理五个任务的机制差异
-- 设计视觉模块输出格式
-- 建立实验截图和结果文件夹规范
+- 核对最终提交包不包含虚拟环境、临时地图或调试脚本
+- 核对成员姓名、分工和报告日期
 
 ### 低优先级
 
-- 统一命名规范与报告图表风格
-- 提前整理参考文献
+- 补充更多随机布局或素材变化实验
+- 继续细化像素执行层与 Lean 契约之间的证明
 
 ## 6. 风险与阻塞
 
@@ -156,6 +153,7 @@
 | 2026-07-10 | `utils/evaluate_policy.py` + `--info-mode safe` | `task_1`-`task_5` | task_1-4 成功，task_5 失败 | safe 模式 10 seed 评测，task_5 agent_dead |
 | 2026-07-11 | `utils/evaluate_policy.py` + `--robustness-suite --num-envs 30` | `task_1`-`task_4` | 成功 | original 72/72 + spatial 36/36 全通过，color 0/12 预期失败 |
 | 2026-07-13 | `utils/evaluate_policy.py` + `--robustness-suite --num-envs 30` | `task_1`-`task_5` | task_1-4 成功，task_5 失败 | 完整 5 任务评测，task_1-4 original+spatial 100%，color 66.7%（dark/bright 通过），task_5 全部 agent_dead |
+| 2026-07-17 | `utils/evaluate_policy.py` + 最终 baseline | `task_1`-`task_5` | 成功 | robustness 50/50；六颜色矩阵 30/30；Task 5 spatial_c 1127 步完成 |
 
 ### 2026-07-10
 
@@ -192,6 +190,18 @@
 - 修复后 task_5 original 评测：success_rate 仍为 0.000，但 agent 平均存活 1083 步（修复前 400 步），累计正奖励 95.020（修复前 -21.650），全部里程碑 1.000（chest_opened/key_collected/gold_collected/agent_healed/button_pressed/room_changed/door_opened/monster_killed/exit_reached）。agent 成功完成 start→south→east 三个房间的完整任务链，仅在 west 房间因 hp 耗尽死亡。
 - 验证 task_1-4 不回归：robustness suite n=30 全部通过，original+spatial 100%，color 66.7%，与修复前完全一致。
 - 更新 `eval_results.json` 为完整 5 任务结果（含 task_5 修复后数据），更新 `main.tex` 实验章节。
+
+### 2026-07-17
+
+- 完善 `Task5Formalization.lean`：新增 10 类 BFS 路线证书、两类战斗证书、西门举盾入场证书、24 阶段详细状态机和完成性证明。
+- 修复 Task 5 `spatial_c`：NPC/非目标出口避障、移动怪物跨 tile 目标选择、西门边界 `ACTION_B` 举盾。
+- 修复 grayscale：参考色映射到灰度均值，使用零容差避免相邻灰度调色板误并。
+- 修复 high_contrast：增加二值连通分量与玩家、怪物、宝箱、NPC、开关、按钮、墙和陷阱的局部形状识别。
+- 验证结果：
+  - 全部 Lean 文件无错误、无警告编译通过。
+  - robustness suite：五任务共 50/50 成功；Task 5 original 6/6、spatial 3/3、grayscale 1/1。
+  - 六颜色矩阵：五任务共 30/30 成功，default/grayscale/dark/bright/high_contrast/inverted 全部通过。
+- 更新最终报告中的 Task 5 策略形式化、实验结果、颜色修复和总结。
 
 ## 9. 每日更新模板
 

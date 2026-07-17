@@ -1035,4 +1035,593 @@ theorem task5_symbolicPolicy_completes :
     ∃ n, GoalReached (runPolicy n initialState) := by
   exact ⟨10, symbolicPolicy_reaches_goal⟩
 
+/-! ### Baseline-aligned certified refinement -/
+
+/-
+The room-level policy above proves the logical objective, but the final Python
+baseline contains additional verifiable control structure:
+
+* every approach phase is delegated to BFS over the visible blocked-tile map;
+* the start-room chaser is cleared before taking the locked east exit;
+* the east ambusher is avoided while approaching the heal chest;
+* the shield is raised at the west boundary before the spatial_c entry contact;
+* both west-room monsters are cleared before the final chest is approached.
+
+The definitions below formalize that control layer as certified macro steps.
+Pixel motion and monster dynamics remain abstracted behind route/combat
+certificates, but the certificate checks and their ordering are explicit.
+-/
+
+abbrev RouteTile := Nat × Nat
+
+def routeInBounds (tile : RouteTile) : Bool :=
+  decide (tile.1 < 10) && decide (tile.2 < 8)
+
+def routeAdjacent (a b : RouteTile) : Bool :=
+  ((a.1 + 1 == b.1) && (a.2 == b.2)) ||
+  ((b.1 + 1 == a.1) && (a.2 == b.2)) ||
+  ((a.1 == b.1) && (a.2 + 1 == b.2)) ||
+  ((a.1 == b.1) && (b.2 + 1 == a.2))
+
+def routeConnected : List RouteTile → Bool
+  | [] => false
+  | [_] => true
+  | a :: b :: rest => routeAdjacent a b && routeConnected (b :: rest)
+
+def routeStartsAt (path : List RouteTile) (start : RouteTile) : Bool :=
+  match path with
+  | [] => false
+  | first :: _ => first == start
+
+def routeEndsIn (path goals : List RouteTile) : Bool :=
+  match path with
+  | [] => false
+  | [last] => goals.contains last
+  | _ :: rest => routeEndsIn rest goals
+
+inductive BfsTarget where
+  | startChest
+  | startButton
+  | southExit
+  | southChest
+  | northExit
+  | eastExit
+  | eastChest
+  | eastReturnExit
+  | westExit
+  | westChest
+  deriving DecidableEq, Repr
+
+/--
+A checkable contract for one Python `bfs_path` / `follow_bfs_aligned` macro.
+`blocked` is the union of visible walls, abyss, avoided traps, chests, NPCs,
+and non-target exits used by the Python policy for that phase.
+-/
+structure BfsRouteCertificate (target : BfsTarget) where
+  start : RouteTile
+  goals : List RouteTile
+  blocked : List RouteTile
+  path : List RouteTile
+  deriving Repr
+
+def validBfsRoute {target : BfsTarget} (certificate : BfsRouteCertificate target) : Bool :=
+  routeStartsAt certificate.path certificate.start &&
+  routeEndsIn certificate.path certificate.goals &&
+  routeConnected certificate.path &&
+  certificate.path.all routeInBounds &&
+  certificate.path.all (fun tile => !(certificate.blocked.contains tile))
+
+abbrev BfsOracle := (target : BfsTarget) → BfsRouteCertificate target
+
+def mkRoute
+    (target : BfsTarget)
+    (start : RouteTile)
+    (goals blocked path : List RouteTile) : BfsRouteCertificate target :=
+  { start := start, goals := goals, blocked := blocked, path := path }
+
+/- Public-layout route witnesses.  Spatial variants may provide different
+   certificates without changing the stage or completion proof. -/
+def verifiedBfsOracle : BfsOracle
+  | BfsTarget.startChest =>
+      mkRoute BfsTarget.startChest (1, 1) [(3, 2)]
+        [(5, 1), (5, 2), (3, 3), (4, 3), (6, 5), (4, 2), (7, 6)]
+        [(1, 1), (1, 2), (2, 2), (3, 2)]
+  | BfsTarget.startButton =>
+      mkRoute BfsTarget.startButton (3, 2) [(2, 6)]
+        [(5, 1), (5, 2), (3, 3), (4, 3), (6, 5), (4, 2), (7, 6)]
+        [(3, 2), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6)]
+  | BfsTarget.southExit =>
+      mkRoute BfsTarget.southExit (2, 6) [(4, 7), (5, 7)]
+        [(5, 1), (5, 2), (3, 3), (4, 3), (6, 5), (4, 2), (7, 6)]
+        [(2, 6), (3, 6), (4, 6), (4, 7)]
+  | BfsTarget.southChest =>
+      mkRoute BfsTarget.southChest (4, 1) [(8, 4)]
+        [(2, 2), (3, 2), (4, 2), (5, 2), (6, 2), (7, 2), (4, 6), (8, 5)]
+        [(4, 1), (5, 1), (6, 1), (7, 1), (8, 1), (8, 2), (8, 3), (8, 4)]
+  | BfsTarget.northExit =>
+      mkRoute BfsTarget.northExit (8, 4) [(4, 0), (5, 0)]
+        [(2, 2), (3, 2), (4, 2), (5, 2), (6, 2), (7, 2), (4, 6), (8, 5)]
+        [(8, 4), (8, 3), (8, 2), (8, 1), (8, 0), (7, 0), (6, 0), (5, 0)]
+  | BfsTarget.eastExit =>
+      mkRoute BfsTarget.eastExit (4, 6) [(9, 3), (9, 4)]
+        [(5, 1), (5, 2), (3, 3), (4, 3), (6, 5), (4, 2), (7, 6)]
+        [(4, 6), (5, 6), (5, 5), (5, 4), (6, 4), (7, 4), (8, 4), (9, 4)]
+  | BfsTarget.eastChest =>
+      mkRoute BfsTarget.eastChest (1, 4) [(6, 1)]
+        [(2, 2), (2, 3), (2, 4), (5, 4), (6, 4), (7, 1)]
+        [(1, 4), (1, 3), (1, 2), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1)]
+  | BfsTarget.eastReturnExit =>
+      mkRoute BfsTarget.eastReturnExit (6, 1) [(0, 3), (0, 4)]
+        [(2, 2), (2, 3), (2, 4), (5, 4), (6, 4), (7, 1)]
+        [(6, 1), (5, 1), (4, 1), (3, 1), (2, 1), (1, 1), (1, 2), (1, 3), (0, 3)]
+  | BfsTarget.westExit =>
+      mkRoute BfsTarget.westExit (8, 3) [(0, 3), (0, 4)]
+        [(5, 1), (5, 2), (3, 3), (4, 3), (6, 5), (4, 2), (7, 6)]
+        [(8, 3), (8, 4), (7, 4), (6, 4), (5, 4), (4, 4), (3, 4), (2, 4), (1, 4), (0, 4)]
+  | BfsTarget.westChest =>
+      mkRoute BfsTarget.westChest (8, 4) [(3, 6)]
+        [(1, 2), (2, 2), (5, 5), (4, 6), (5, 6), (2, 6), (7, 6)]
+        [(8, 4), (7, 4), (6, 4), (5, 4), (4, 4), (3, 4), (3, 5), (3, 6)]
+
+inductive CombatTarget where
+  | startChaser
+  | westMonsters
+  deriving DecidableEq, Repr
+
+/-- Contract for the repeated approach/face/attack loop in `attack_monster`. -/
+structure CombatCertificate (target : CombatTarget) where
+  approachSteps : Nat
+  attackBursts : Nat
+  targetDefeated : Bool
+  avoidsInteractionTiles : Bool
+  blocksNonTargetExits : Bool
+  deriving Repr
+
+def validCombat {target : CombatTarget} (certificate : CombatCertificate target) : Bool :=
+  decide (0 < certificate.approachSteps) &&
+  decide (0 < certificate.attackBursts) &&
+  certificate.targetDefeated &&
+  certificate.avoidsInteractionTiles &&
+  certificate.blocksNonTargetExits
+
+abbrev CombatOracle := (target : CombatTarget) → CombatCertificate target
+
+def verifiedCombatOracle : CombatOracle
+  | CombatTarget.startChaser =>
+      { approachSteps := 120
+        attackBursts := 2
+        targetDefeated := true
+        avoidsInteractionTiles := true
+        blocksNonTargetExits := true }
+  | CombatTarget.westMonsters =>
+      { approachSteps := 70
+        attackBursts := 2
+        targetDefeated := true
+        avoidsInteractionTiles := true
+        blocksNonTargetExits := true }
+
+/-- Certificate for the spatial_c west-room boundary contact. -/
+structure WestEntryCertificate where
+  crossingTicks : Nat
+  shieldTicks : Nat
+  raisedAtBoundary : Bool
+  contactBlocked : Bool
+  deriving Repr
+
+def validWestEntry (certificate : WestEntryCertificate) : Bool :=
+  decide (certificate.crossingTicks < certificate.shieldTicks) &&
+  certificate.raisedAtBoundary && certificate.contactBlocked
+
+def verifiedWestEntry : WestEntryCertificate :=
+  { crossingTicks := 2
+    shieldTicks := 6
+    raisedAtBoundary := true
+    contactBlocked := true }
+
+structure BaselineCertificates where
+  bfs : BfsOracle
+  combat : CombatOracle
+  westEntry : WestEntryCertificate
+
+def verifiedCertificates : BaselineCertificates :=
+  { bfs := verifiedBfsOracle
+    combat := verifiedCombatOracle
+    westEntry := verifiedWestEntry }
+
+inductive BaselinePhase where
+  | approachStartChest
+  | openStartChest
+  | approachButton
+  | pressStartButton
+  | approachSouthExit
+  | enterSouth
+  | approachSouthChest
+  | openSouthChest
+  | approachNorthExit
+  | returnStartFromSouth
+  | clearStartMonster
+  | approachEastExit
+  | enterEast
+  | approachEastChest
+  | openEastChest
+  | approachEastReturn
+  | returnStartFromEast
+  | approachWestExit
+  | raiseWestShield
+  | enterWest
+  | clearWestMonsters
+  | approachWestChest
+  | openWestChest
+  | done
+  deriving DecidableEq, Repr
+
+inductive BaselineAction where
+  | followBfs (target : BfsTarget)
+  | openChest
+  | pressButton
+  | crossSouth
+  | crossNorth
+  | crossEast
+  | crossWest
+  | attack
+  | raiseShield
+  | wait
+  deriving DecidableEq, Repr
+
+structure BaselineState where
+  env : EnvState
+  phase : BaselinePhase
+  startMonsterAlive : Bool
+  westMonstersRemaining : Nat
+  shieldActive : Bool
+  safe : Bool
+  deriving DecidableEq, Repr
+
+def initialBaselineState : BaselineState :=
+  { env := initialState
+    phase := BaselinePhase.approachStartChest
+    startMonsterAlive := true
+    westMonstersRemaining := 2
+    shieldActive := false
+    safe := true }
+
+def baselineActionEnabledBool
+    (certificates : BaselineCertificates)
+    (s : BaselineState) : BaselineAction → Bool
+  | BaselineAction.followBfs target =>
+      validBfsRoute (certificates.bfs target) &&
+      match s.phase, target with
+      | BaselinePhase.approachStartChest, BfsTarget.startChest => true
+      | BaselinePhase.approachButton, BfsTarget.startButton => true
+      | BaselinePhase.approachSouthExit, BfsTarget.southExit => true
+      | BaselinePhase.approachSouthChest, BfsTarget.southChest => true
+      | BaselinePhase.approachNorthExit, BfsTarget.northExit => true
+      | BaselinePhase.approachEastExit, BfsTarget.eastExit => true
+      | BaselinePhase.approachEastChest, BfsTarget.eastChest => true
+      | BaselinePhase.approachEastReturn, BfsTarget.eastReturnExit => true
+      | BaselinePhase.approachWestExit, BfsTarget.westExit => true
+      | BaselinePhase.approachWestChest, BfsTarget.westChest => true
+      | _, _ => false
+  | BaselineAction.openChest =>
+      match s.phase with
+      | BaselinePhase.openStartChest =>
+          decide (s.env.room = Room.startRoom) && !s.env.startChestOpened
+      | BaselinePhase.openSouthChest =>
+          decide (s.env.room = Room.southRoom) && !s.env.southChestOpened
+      | BaselinePhase.openEastChest =>
+          decide (s.env.room = Room.eastRoom) && !s.env.eastChestOpened
+      | BaselinePhase.openWestChest =>
+          decide (s.env.room = Room.westRoom) && !s.env.westChestOpened &&
+          decide (s.westMonstersRemaining = 0)
+      | _ => false
+  | BaselineAction.pressButton =>
+      decide (s.phase = BaselinePhase.pressStartButton) &&
+      decide (s.env.room = Room.startRoom)
+  | BaselineAction.crossSouth =>
+      decide (s.phase = BaselinePhase.enterSouth) &&
+      decide (s.env.room = Room.startRoom) && s.env.buttonPressed
+  | BaselineAction.crossNorth =>
+      decide (s.phase = BaselinePhase.returnStartFromSouth) &&
+      decide (s.env.room = Room.southRoom)
+  | BaselineAction.crossEast =>
+      decide (s.phase = BaselinePhase.enterEast) &&
+      decide (s.env.room = Room.startRoom) &&
+      decide (s.env.keys > 0) && !s.startMonsterAlive
+  | BaselineAction.crossWest =>
+      (decide (s.phase = BaselinePhase.returnStartFromEast) &&
+        decide (s.env.room = Room.eastRoom)) ||
+      (decide (s.phase = BaselinePhase.enterWest) &&
+        decide (s.env.room = Room.startRoom) && s.shieldActive &&
+        validWestEntry certificates.westEntry)
+  | BaselineAction.attack =>
+      (decide (s.phase = BaselinePhase.clearStartMonster) &&
+        decide (s.env.room = Room.startRoom) && s.startMonsterAlive &&
+        validCombat (certificates.combat CombatTarget.startChaser)) ||
+      (decide (s.phase = BaselinePhase.clearWestMonsters) &&
+        decide (s.env.room = Room.westRoom) &&
+        decide (s.westMonstersRemaining > 0) &&
+        validCombat (certificates.combat CombatTarget.westMonsters))
+  | BaselineAction.raiseShield =>
+      decide (s.phase = BaselinePhase.raiseWestShield) &&
+      decide (s.env.room = Room.startRoom) &&
+      validWestEntry certificates.westEntry
+  | BaselineAction.wait => decide (s.phase = BaselinePhase.done)
+
+def BaselineActionEnabled
+    (certificates : BaselineCertificates)
+    (s : BaselineState)
+    (action : BaselineAction) : Prop :=
+  baselineActionEnabledBool certificates s action = true
+
+def unsafeBaselineState (s : BaselineState) : BaselineState :=
+  { s with safe := false }
+
+def advanceBfs
+    (certificates : BaselineCertificates)
+    (s : BaselineState)
+    (target : BfsTarget)
+    (next : BaselinePhase) : BaselineState :=
+  if validBfsRoute (certificates.bfs target) then
+    { s with phase := next }
+  else
+    unsafeBaselineState s
+
+def baselineStep
+    (certificates : BaselineCertificates)
+    (s : BaselineState)
+    (action : BaselineAction) : BaselineState :=
+  match s.phase, action with
+  | BaselinePhase.approachStartChest, BaselineAction.followBfs BfsTarget.startChest =>
+      advanceBfs certificates s BfsTarget.startChest BaselinePhase.openStartChest
+  | BaselinePhase.openStartChest, BaselineAction.openChest =>
+      if s.env.room = Room.startRoom ∧ s.env.startChestOpened = false then
+        { s with env := step s.env Action.openChest, phase := BaselinePhase.approachButton }
+      else unsafeBaselineState s
+  | BaselinePhase.approachButton, BaselineAction.followBfs BfsTarget.startButton =>
+      advanceBfs certificates s BfsTarget.startButton BaselinePhase.pressStartButton
+  | BaselinePhase.pressStartButton, BaselineAction.pressButton =>
+      if s.env.room = Room.startRoom then
+        { s with env := step s.env Action.pressButton, phase := BaselinePhase.approachSouthExit }
+      else unsafeBaselineState s
+  | BaselinePhase.approachSouthExit, BaselineAction.followBfs BfsTarget.southExit =>
+      advanceBfs certificates s BfsTarget.southExit BaselinePhase.enterSouth
+  | BaselinePhase.enterSouth, BaselineAction.crossSouth =>
+      if s.env.room = Room.startRoom ∧ s.env.buttonPressed = true then
+        { s with env := step s.env Action.goSouth, phase := BaselinePhase.approachSouthChest }
+      else unsafeBaselineState s
+  | BaselinePhase.approachSouthChest, BaselineAction.followBfs BfsTarget.southChest =>
+      advanceBfs certificates s BfsTarget.southChest BaselinePhase.openSouthChest
+  | BaselinePhase.openSouthChest, BaselineAction.openChest =>
+      if s.env.room = Room.southRoom ∧ s.env.southChestOpened = false then
+        { s with env := step s.env Action.openChest, phase := BaselinePhase.approachNorthExit }
+      else unsafeBaselineState s
+  | BaselinePhase.approachNorthExit, BaselineAction.followBfs BfsTarget.northExit =>
+      advanceBfs certificates s BfsTarget.northExit BaselinePhase.returnStartFromSouth
+  | BaselinePhase.returnStartFromSouth, BaselineAction.crossNorth =>
+      if s.env.room = Room.southRoom then
+        { s with env := step s.env Action.goNorth, phase := BaselinePhase.clearStartMonster }
+      else unsafeBaselineState s
+  | BaselinePhase.clearStartMonster, BaselineAction.attack =>
+      if s.env.room = Room.startRoom ∧ s.startMonsterAlive = true ∧
+          validCombat (certificates.combat CombatTarget.startChaser) = true then
+        { s with startMonsterAlive := false, phase := BaselinePhase.approachEastExit }
+      else unsafeBaselineState s
+  | BaselinePhase.approachEastExit, BaselineAction.followBfs BfsTarget.eastExit =>
+      advanceBfs certificates s BfsTarget.eastExit BaselinePhase.enterEast
+  | BaselinePhase.enterEast, BaselineAction.crossEast =>
+      if s.env.room = Room.startRoom ∧ s.env.keys > 0 ∧ s.startMonsterAlive = false then
+        { s with env := step s.env Action.goEast, phase := BaselinePhase.approachEastChest }
+      else unsafeBaselineState s
+  | BaselinePhase.approachEastChest, BaselineAction.followBfs BfsTarget.eastChest =>
+      advanceBfs certificates s BfsTarget.eastChest BaselinePhase.openEastChest
+  | BaselinePhase.openEastChest, BaselineAction.openChest =>
+      if s.env.room = Room.eastRoom ∧ s.env.eastChestOpened = false then
+        { s with env := step s.env Action.openChest, phase := BaselinePhase.approachEastReturn }
+      else unsafeBaselineState s
+  | BaselinePhase.approachEastReturn, BaselineAction.followBfs BfsTarget.eastReturnExit =>
+      advanceBfs certificates s BfsTarget.eastReturnExit BaselinePhase.returnStartFromEast
+  | BaselinePhase.returnStartFromEast, BaselineAction.crossWest =>
+      if s.env.room = Room.eastRoom then
+        { s with env := step s.env Action.goWest, phase := BaselinePhase.approachWestExit }
+      else unsafeBaselineState s
+  | BaselinePhase.approachWestExit, BaselineAction.followBfs BfsTarget.westExit =>
+      advanceBfs certificates s BfsTarget.westExit BaselinePhase.raiseWestShield
+  | BaselinePhase.raiseWestShield, BaselineAction.raiseShield =>
+      if s.env.room = Room.startRoom ∧ validWestEntry certificates.westEntry = true then
+        { s with shieldActive := true, phase := BaselinePhase.enterWest }
+      else unsafeBaselineState s
+  | BaselinePhase.enterWest, BaselineAction.crossWest =>
+      if s.env.room = Room.startRoom ∧ s.shieldActive = true ∧
+          validWestEntry certificates.westEntry = true then
+        { s with env := step s.env Action.goWest
+                 shieldActive := false
+                 phase := BaselinePhase.clearWestMonsters }
+      else unsafeBaselineState s
+  | BaselinePhase.clearWestMonsters, BaselineAction.attack =>
+      if s.env.room = Room.westRoom ∧ s.westMonstersRemaining > 0 ∧
+          validCombat (certificates.combat CombatTarget.westMonsters) = true then
+        let remaining := s.westMonstersRemaining - 1
+        { s with westMonstersRemaining := remaining
+                 phase := if remaining = 0 then
+                   BaselinePhase.approachWestChest
+                 else
+                   BaselinePhase.clearWestMonsters }
+      else unsafeBaselineState s
+  | BaselinePhase.approachWestChest, BaselineAction.followBfs BfsTarget.westChest =>
+      advanceBfs certificates s BfsTarget.westChest BaselinePhase.openWestChest
+  | BaselinePhase.openWestChest, BaselineAction.openChest =>
+      if s.env.room = Room.westRoom ∧ s.env.westChestOpened = false ∧
+          s.westMonstersRemaining = 0 then
+        { s with env := step s.env Action.openChest, phase := BaselinePhase.done }
+      else unsafeBaselineState s
+  | BaselinePhase.done, BaselineAction.wait => s
+  | _, _ => unsafeBaselineState s
+
+def certifiedBfsAction
+    (certificates : BaselineCertificates)
+    (target : BfsTarget) : BaselineAction :=
+  if validBfsRoute (certificates.bfs target) then
+    BaselineAction.followBfs target
+  else
+    BaselineAction.wait
+
+def certifiedCombatAction
+    (certificates : BaselineCertificates)
+    (target : CombatTarget) : BaselineAction :=
+  if validCombat (certificates.combat target) then
+    BaselineAction.attack
+  else
+    BaselineAction.wait
+
+/-- State-driven macro policy matching the final Python task-5 ordering. -/
+def baselinePolicy
+    (certificates : BaselineCertificates)
+    (s : BaselineState) : BaselineAction :=
+  match s.phase with
+  | BaselinePhase.approachStartChest => certifiedBfsAction certificates BfsTarget.startChest
+  | BaselinePhase.openStartChest => BaselineAction.openChest
+  | BaselinePhase.approachButton => certifiedBfsAction certificates BfsTarget.startButton
+  | BaselinePhase.pressStartButton => BaselineAction.pressButton
+  | BaselinePhase.approachSouthExit => certifiedBfsAction certificates BfsTarget.southExit
+  | BaselinePhase.enterSouth => BaselineAction.crossSouth
+  | BaselinePhase.approachSouthChest => certifiedBfsAction certificates BfsTarget.southChest
+  | BaselinePhase.openSouthChest => BaselineAction.openChest
+  | BaselinePhase.approachNorthExit => certifiedBfsAction certificates BfsTarget.northExit
+  | BaselinePhase.returnStartFromSouth => BaselineAction.crossNorth
+  | BaselinePhase.clearStartMonster => certifiedCombatAction certificates CombatTarget.startChaser
+  | BaselinePhase.approachEastExit => certifiedBfsAction certificates BfsTarget.eastExit
+  | BaselinePhase.enterEast => BaselineAction.crossEast
+  | BaselinePhase.approachEastChest => certifiedBfsAction certificates BfsTarget.eastChest
+  | BaselinePhase.openEastChest => BaselineAction.openChest
+  | BaselinePhase.approachEastReturn => certifiedBfsAction certificates BfsTarget.eastReturnExit
+  | BaselinePhase.returnStartFromEast => BaselineAction.crossWest
+  | BaselinePhase.approachWestExit => certifiedBfsAction certificates BfsTarget.westExit
+  | BaselinePhase.raiseWestShield =>
+      if validWestEntry certificates.westEntry then BaselineAction.raiseShield else BaselineAction.wait
+  | BaselinePhase.enterWest => BaselineAction.crossWest
+  | BaselinePhase.clearWestMonsters => certifiedCombatAction certificates CombatTarget.westMonsters
+  | BaselinePhase.approachWestChest => certifiedBfsAction certificates BfsTarget.westChest
+  | BaselinePhase.openWestChest => BaselineAction.openChest
+  | BaselinePhase.done => BaselineAction.wait
+
+def runBaseline
+    (certificates : BaselineCertificates) : Nat → BaselineState → BaselineState
+  | 0, s => s
+  | n + 1, s =>
+      let action := baselinePolicy certificates s
+      runBaseline certificates n (baselineStep certificates s action)
+
+def baselineTrace
+    (certificates : BaselineCertificates) : Nat → BaselineState → List BaselineAction
+  | 0, _ => []
+  | n + 1, s =>
+      let action := baselinePolicy certificates s
+      action :: baselineTrace certificates n (baselineStep certificates s action)
+
+def baselineActionsEnabledAlong
+    (certificates : BaselineCertificates) : BaselineState → List BaselineAction → Bool
+  | _, [] => true
+  | s, action :: rest =>
+      baselineActionEnabledBool certificates s action &&
+      baselineActionsEnabledAlong certificates (baselineStep certificates s action) rest
+
+def detailedFinalState : BaselineState :=
+  { env := finalState
+    phase := BaselinePhase.done
+    startMonsterAlive := false
+    westMonstersRemaining := 0
+    shieldActive := false
+    safe := true }
+
+def verifiedBaselinePlan : List BaselineAction :=
+  [ BaselineAction.followBfs BfsTarget.startChest
+  , BaselineAction.openChest
+  , BaselineAction.followBfs BfsTarget.startButton
+  , BaselineAction.pressButton
+  , BaselineAction.followBfs BfsTarget.southExit
+  , BaselineAction.crossSouth
+  , BaselineAction.followBfs BfsTarget.southChest
+  , BaselineAction.openChest
+  , BaselineAction.followBfs BfsTarget.northExit
+  , BaselineAction.crossNorth
+  , BaselineAction.attack
+  , BaselineAction.followBfs BfsTarget.eastExit
+  , BaselineAction.crossEast
+  , BaselineAction.followBfs BfsTarget.eastChest
+  , BaselineAction.openChest
+  , BaselineAction.followBfs BfsTarget.eastReturnExit
+  , BaselineAction.crossWest
+  , BaselineAction.followBfs BfsTarget.westExit
+  , BaselineAction.raiseShield
+  , BaselineAction.crossWest
+  , BaselineAction.attack
+  , BaselineAction.attack
+  , BaselineAction.followBfs BfsTarget.westChest
+  , BaselineAction.openChest ]
+
+def DetailedGoalReached (s : BaselineState) : Prop :=
+  GoalReached s.env ∧
+  s.startMonsterAlive = false ∧
+  s.westMonstersRemaining = 0 ∧
+  s.safe = true
+
+theorem verified_bfs_routes_valid :
+    ∀ target, validBfsRoute (verifiedCertificates.bfs target) = true := by
+  intro target
+  cases target <;> native_decide
+
+theorem verified_combat_routes_valid :
+    ∀ target, validCombat (verifiedCertificates.combat target) = true := by
+  intro target
+  cases target <;> native_decide
+
+theorem verified_west_entry_valid :
+    validWestEntry verifiedCertificates.westEntry = true := by
+  native_decide
+
+theorem baselineTrace_24_matches_verified_plan :
+    baselineTrace verifiedCertificates 24 initialBaselineState = verifiedBaselinePlan := by
+  native_decide
+
+theorem baselineTrace_24_actions_enabled :
+    baselineActionsEnabledAlong verifiedCertificates initialBaselineState
+      (baselineTrace verifiedCertificates 24 initialBaselineState) = true := by
+  native_decide
+
+theorem start_monster_cleared_before_east_entry :
+    let s := runBaseline verifiedCertificates 12 initialBaselineState
+    s.phase = BaselinePhase.enterEast ∧ s.startMonsterAlive = false := by
+  native_decide
+
+theorem spatial_c_west_entry_is_shielded :
+    let s := runBaseline verifiedCertificates 19 initialBaselineState
+    s.phase = BaselinePhase.enterWest ∧
+    s.shieldActive = true ∧
+    BaselineActionEnabled verifiedCertificates s BaselineAction.crossWest := by
+  simp only [BaselineActionEnabled]
+  native_decide
+
+theorem west_monsters_cleared_before_final_chest :
+    let s := runBaseline verifiedCertificates 23 initialBaselineState
+    s.phase = BaselinePhase.openWestChest ∧ s.westMonstersRemaining = 0 := by
+  native_decide
+
+theorem baselinePolicy_run_24_finalState :
+    runBaseline verifiedCertificates 24 initialBaselineState = detailedFinalState := by
+  native_decide
+
+theorem baselinePolicy_refines_room_level_finalState :
+    (runBaseline verifiedCertificates 24 initialBaselineState).env = finalState := by
+  rw [baselinePolicy_run_24_finalState]
+  rfl
+
+theorem baselinePolicy_reaches_detailed_goal :
+    DetailedGoalReached (runBaseline verifiedCertificates 24 initialBaselineState) := by
+  rw [baselinePolicy_run_24_finalState]
+  simp [DetailedGoalReached, detailedFinalState, GoalReached, allChestsOpened, finalState]
+
+theorem task5_certified_baseline_completes :
+    ∃ n, DetailedGoalReached (runBaseline verifiedCertificates n initialBaselineState) := by
+  exact ⟨24, baselinePolicy_reaches_detailed_goal⟩
+
 end Task5Formalization
