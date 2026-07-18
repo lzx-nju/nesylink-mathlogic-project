@@ -20,7 +20,7 @@
 }
 
 \title{数理逻辑课程大作业实验报告}
-\author{李政轩 \and 续博森 \and 吴韬 \and 陈怡琼 \and 许浩博}
+\author{李政轩（241880177） \and 续博森（241880403） \and 吴韬（241880187） \and 陈怡琼（241880323） \and 许浩博（231880172）}
 \date{\today}
 
 \begin{document}
@@ -1005,6 +1005,56 @@ Task 5 & color    & 10 & 1.000 & 1072.8 & 222.762 & 五种变体通过 \\
 spatial 列的 a/b/c 指布局变体 spatial\_a/spatial\_b/spatial\_c；color 列局数为五种非默认观察变体（grayscale/dark/bright/high\_contrast/inverted）合计。}
 \end{table}
 
+\textbf{Milestone 指标}（按 readme §九要求）。milestone 为 0/1 标志，
+下表为每个任务在 original/spatial/color 三阶段的平均达成率（1.00 表示全部 episode 达成）。
+\texttt{task\_1}、\texttt{task\_2} 评测脚本未定义 milestone，故未列出。
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{0.10\textwidth}p{0.10\textwidth}p{0.16\textwidth}p{0.16\textwidth}p{0.16\textwidth}}
+\toprule
+任务 & 阶段 & \phantom{a} & milestone 达成率 & \phantom{a} \\
+\midrule
+Task 3 & original/spatial/color & \multicolumn{3}{l}{\texttt{key\_collected}=1.00，\texttt{monster\_killed}=0.00（task 3 无需杀怪）} \\
+Task 4 & original/spatial/color & \texttt{switch\_activated}=1.00 & \texttt{key\_collected}=1.00 & \texttt{door\_opened}=1.00 \\
+ &  & \texttt{item\_collected}=1.00 & \texttt{monster\_killed}=1.00 & \\
+Task 5 & original/spatial/color & \texttt{chest\_opened}=1.00 & \texttt{key\_collected}=1.00 & \texttt{gold\_collected}=1.00 \\
+ &  & \texttt{agent\_healed}=1.00 & \texttt{button\_pressed}=1.00 & \texttt{room\_changed}=1.00 \\
+ &  & \texttt{door\_opened}=1.00 & \texttt{monster\_killed}=1.00 & \texttt{exit\_reached}=1.00 \\
+ &  & \texttt{environment\_completed}=1.00 & \texttt{world\_completed}=1.00 & \texttt{item\_collected}=0.00 \\
+ &  & \texttt{trap\_triggered}=0.00 & & \\
+\bottomrule
+\end{tabular}
+\caption{Task 3/4/5 在三阶段的 milestone 达成率。同一任务在 original/spatial/color
+三阶段的 milestone 值完全一致（baseline 为无随机成分的规则策略，每个 milestone 均稳定触发）。
+\texttt{task\_5} 的 \texttt{item\_collected}=0 与 \texttt{trap\_triggered}=0 符合预期：
+task 5 的目标为开启全部宝箱并完成世界，不需要拾取道具或触发陷阱。}
+\end{table}
+
+\textbf{Progress 指标}（按 readme §九要求）。下表列出关键事件在每个 episode 的平均触发次数，
+反映 agent 在每个任务中的推进路径。三阶段数值一致，故仅列 original。
+
+\begin{table}[H]
+\centering
+\begin{tabular}{p{0.10\textwidth}p{0.10\textwidth}p{0.65\textwidth}}
+\toprule
+任务 & 阶段 & progress 事件（per-ep avg） \\
+\midrule
+Task 1 & original & \texttt{chest\_opened}=1, \texttt{key\_collected}=1, \texttt{room\_changed}=1, \texttt{door\_opened}=1, \texttt{exit\_reached}=1, \texttt{environment\_completed}=1, \texttt{world\_completed}=1 \\
+Task 2 & original & Task 1 全部 + \texttt{monster\_killed}=1 \\
+Task 3 & original & \texttt{chest\_opened}=1, \texttt{key\_collected}=1, \texttt{room\_changed}=5, \texttt{door\_opened}=1, \texttt{exit\_reached}=5, \texttt{environment\_completed}=1, \texttt{world\_completed}=1 \\
+Task 4 & original & \texttt{chest\_opened}=3, \texttt{key\_collected}=1, \texttt{gold\_collected}=1, \texttt{item\_collected}=1, \texttt{room\_changed}=11, \texttt{door\_opened}=1, \texttt{monster\_killed}=1, \texttt{exit\_reached}=11, \texttt{environment\_completed}=1, \texttt{world\_completed}=1 \\
+Task 5 & original & \texttt{chest\_opened}=4, \texttt{key\_collected}=1, \texttt{gold\_collected}=2, \texttt{agent\_healed}=1, \texttt{button\_pressed}=1, \texttt{room\_changed}=5, \texttt{door\_opened}=1, \texttt{monster\_killed}=3, \texttt{exit\_reached}=5, \texttt{environment\_completed}=1, \texttt{world\_completed}=1 \\
+\bottomrule
+\end{tabular}
+\caption{Progress 事件每个 episode 的平均触发次数（original 阶段）。
+spatial/color 阶段数值与 original 完全一致，故省略。
+事件计数说明：\texttt{chest\_opened} 与任务宝箱数对应（task\_1:1, task\_2:1, task\_3:1, task\_4:3, task\_5:4）；
+\texttt{room\_changed}/\texttt{exit\_reached} 与任务房间数相关（task\_3 跨 6 房间、task\_4 跨 12 房间、task\_5 跨 6 房间）；
+\texttt{monster\_killed} 与各任务需击杀怪物数对应（task\_2:1, task\_4:1, task\_5:3，task\_1/3 无怪物）。
+所有任务 \texttt{environment\_completed}=1 和 \texttt{world\_completed}=1，无 \texttt{agent\_dead} 事件。}
+\end{table}
+
 \begin{table}[H]
 \centering
 \begin{tabular}{p{0.40\textwidth}p{0.20\textwidth}p{0.30\textwidth}}
@@ -1334,11 +1384,11 @@ default 无回归，dark/bright/inverted、grayscale 和 high\_contrast
 \toprule
 成员 & 负责内容 & 主要产出 \\
 \midrule
-李政轩（组长） & 项目初始化、\texttt{safe} 模式适配、spatial/color 鲁棒性修复、task5 导航攻坚 & 报告与文档骨架、task4 baseline 状态机；\texttt{safe} 模式适配（移除 \texttt{reward\_signals} 依赖）；task1-4 spatial 变体修复（像素对齐、房间识别）；task5 导航执行层 7 个 bug 修复（HP 预算分析等） \\
-续博森 & Lean 环境与策略形式化、BFS 改造、颜色变体与 task5 攻坚 & task1-5 环境形式化与策略形式化；task1-4 由硬编码改为 BFS；可逆颜色变体适配（color 3/5 $\to$ 5/5）；task5 original 优化至 success\_rate = 1.000；spatial\_a/b 修复（\texttt{no\_attack\_tiles}、\texttt{diagonal\_block}） \\
-陈怡琼 & Python baseline、策略框架完备性证明、task5 最终突破 & task3/4/5 像素 baseline；\texttt{StrategyFramework.lean} 完备性证明；task5 形式化补强与 robustness 支持（\texttt{ACTION\_B} 举盾入场解决 spatial\_c 接触伤害，500-episode 日志） \\
-许浩博 & Task1 Lean 证明对齐 & Task1 Lean 证明与 BFS 策略对齐 \\
-吴韬 & 参与项目早期方案讨论 & 参与早期方案讨论与团队协调（相关工作未直接反映在代码提交记录中） \\
+李政轩（组长，241880177） & 项目初始化、\texttt{safe} 模式适配、spatial/color 鲁棒性修复、task5 导航攻坚 & 报告与文档骨架、task4 baseline 状态机；\texttt{safe} 模式适配（移除 \texttt{reward\_signals} 依赖）；task1-4 spatial 变体修复（像素对齐、房间识别）；task5 导航执行层 7 个 bug 修复（HP 预算分析等） \\
+续博森（241880403） & Lean 环境与策略形式化、BFS 改造、颜色变体与 task5 攻坚 & task1-5 环境形式化与策略形式化；task1-4 由硬编码改为 BFS；可逆颜色变体适配（color 3/5 $\to$ 5/5）；task5 original 优化至 success\_rate = 1.000；spatial\_a/b 修复（\texttt{no\_attack\_tiles}、\texttt{diagonal\_block}） \\
+陈怡琼（241880323） & Python baseline、策略框架完备性证明、task5 最终突破 & task3/4/5 像素 baseline；\texttt{StrategyFramework.lean} 完备性证明；task5 形式化补强与 robustness 支持（\texttt{ACTION\_B} 举盾入场解决 spatial\_c 接触伤害，500-episode 日志） \\
+许浩博（231880172） & Task1 Lean 证明对齐 & Task1 Lean 证明与 BFS 策略对齐 \\
+吴韬（241880187） & 参与项目早期方案讨论 & 参与早期方案讨论与团队协调（相关工作未直接反映在代码提交记录中） \\
 \bottomrule
 \end{tabular}
 \caption{小组分工}
