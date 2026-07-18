@@ -26,7 +26,7 @@
 
 | 工作流 | 当前状态 | 负责人 | 下一步 |
 |---|---|---|---|
-| 环境与评测 | 已完成 | 小组 | robustness 50/50，六颜色矩阵 30/30 |
+| 环境与评测 | 已完成 | 小组 | robustness 500/500，六颜色变体 50/50 |
 | 视觉与状态抽取 | 已完成 | 小组 | grayscale/high_contrast 与空间扰动均已覆盖 |
 | 策略与规划 | 已完成 | 小组 | 五任务统一 baseline，Task 5 spatial_c 已通过 |
 | Lean 形式化与证明 | 已完成 | 小组 | 环境、策略、统一框架及 Task 5 细化证明均通过 |
@@ -153,7 +153,7 @@
 | 2026-07-10 | `utils/evaluate_policy.py` + `--info-mode safe` | `task_1`-`task_5` | task_1-4 成功，task_5 失败 | safe 模式 10 seed 评测，task_5 agent_dead |
 | 2026-07-11 | `utils/evaluate_policy.py` + `--robustness-suite --num-envs 30` | `task_1`-`task_4` | 成功 | original 72/72 + spatial 36/36 全通过，color 0/12 预期失败 |
 | 2026-07-13 | `utils/evaluate_policy.py` + `--robustness-suite --num-envs 30` | `task_1`-`task_5` | task_1-4 成功，task_5 失败 | 完整 5 任务评测，task_1-4 original+spatial 100%，color 66.7%（dark/bright 通过），task_5 全部 agent_dead |
-| 2026-07-17 | `utils/evaluate_policy.py` + 最终 baseline | `task_1`-`task_5` | 成功 | robustness 50/50；六颜色矩阵 30/30；Task 5 spatial_c 1127 步完成 |
+| 2026-07-17 | `utils/evaluate_policy.py` + 最终 baseline | `task_1`-`task_5` | 成功 | robustness 500/500（--num-envs 100）；六颜色变体 50/50；Task 5 spatial_c 1127 步完成 |
 
 ### 2026-07-10
 
@@ -199,8 +199,8 @@
 - 修复 high_contrast：增加二值连通分量与玩家、怪物、宝箱、NPC、开关、按钮、墙和陷阱的局部形状识别。
 - 验证结果：
   - 全部 Lean 文件无错误、无警告编译通过。
-  - robustness suite：五任务共 50/50 成功；Task 5 original 6/6、spatial 3/3、grayscale 1/1。
-  - 六颜色矩阵：五任务共 30/30 成功，default/grayscale/dark/bright/high_contrast/inverted 全部通过。
+  - robustness suite：五任务共 500/500 成功（--num-envs 100）；Task 5 original 60/60、spatial 30/30、color 10/10。
+  - 六颜色变体：五任务共 50/50 成功（color 阶段覆盖 grayscale/dark/bright/high_contrast/inverted 各 2 seed），default 在 original/spatial 中覆盖。
 - 更新最终报告中的 Task 5 策略形式化、实验结果、颜色修复和总结。
 
 ## 9. 每日更新模板
